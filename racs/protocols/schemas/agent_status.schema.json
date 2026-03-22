@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ridwanbale/racs-protocols/schemas/agent_status.schema.json",
+  "title": "AgentStatus",
+  "description": "Heartbeat and status report published by a Site Agent.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["agent_id", "site_id", "status", "degradation_level", "timestamp"],
+  "additionalProperties": false,
+  "properties": {
+    "agent_id": {
+      "type": "string",
+      "description": "Unique identifier of the agent instance."
+    },
+    "site_id": {
+      "type": "string",
+      "description": "Facility identifier."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ONLINE", "DEGRADED", "OFFLINE"],
+      "description": "Current operational status of this agent."
+    },
+    "degradation_level": {
+      "type": "string",
+      "enum": ["NORMAL", "REDUCED_SPEED", "LIMITED_OPERATIONS", "SAFE_HOLD", "EMERGENCY_STOP"],
+      "description": "Current degradation level at this site."
+    },
+    "speed_factor": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Current robot speed multiplier (1.0 = full speed, 0.0 = stopped)."
+    },
+    "connected_to_brain": {
+      "type": "boolean",
+      "description": "Whether this agent is connected to the NetworkBrain."
+    },
+    "robot_active_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "robot_fault_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "pending_override_requests": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of actions awaiting human approval."
+    },
+    "timestamp": {
+      "type": "number",
+      "description": "Unix epoch timestamp of this status report."
+    }
+  }
+}
