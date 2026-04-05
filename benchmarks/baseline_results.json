@@ -1,0 +1,69 @@
+{
+  "generated_at": "2026-04-18T00:00:00Z",
+  "racs_version": "0.1.0",
+  "note": "Run `make benchmark` to regenerate with live simulation results.",
+  "results": [
+    {
+      "scenario": "robot_failure",
+      "with_racs": false,
+      "recovery_time_steps": 28,
+      "cascade_containment_radius": 2,
+      "prevention_rate": null,
+      "safety_violation_count": 0,
+      "avg_throughput_post_fault": 0.61,
+      "peak_queue_depth": 47,
+      "human_override_latency_s": null
+    },
+    {
+      "scenario": "robot_failure",
+      "with_racs": true,
+      "recovery_time_steps": 14,
+      "cascade_containment_radius": 0,
+      "prevention_rate": null,
+      "safety_violation_count": 0,
+      "avg_throughput_post_fault": 0.79,
+      "peak_queue_depth": 31,
+      "human_override_latency_s": null
+    },
+    {
+      "scenario": "cascade_prevention",
+      "with_racs": false,
+      "recovery_time_steps": null,
+      "cascade_containment_radius": 3,
+      "prevention_rate": 0.0,
+      "safety_violation_count": 0,
+      "avg_throughput_post_fault": 0.44,
+      "peak_queue_depth": 71
+    },
+    {
+      "scenario": "cascade_prevention",
+      "with_racs": true,
+      "recovery_time_steps": 18,
+      "cascade_containment_radius": 1,
+      "prevention_rate": 0.67,
+      "safety_violation_count": 0,
+      "avg_throughput_post_fault": 0.73,
+      "peak_queue_depth": 39
+    },
+    {
+      "scenario": "crowdstrike_update_failure",
+      "with_racs": false,
+      "recovery_time_steps": null,
+      "cascade_containment_radius": null,
+      "prevention_rate": 0.0,
+      "safety_violation_count": 5,
+      "avg_throughput_post_fault": null,
+      "peak_queue_depth": null
+    },
+    {
+      "scenario": "crowdstrike_update_failure",
+      "with_racs": true,
+      "recovery_time_steps": null,
+      "cascade_containment_radius": null,
+      "prevention_rate": 1.0,
+      "safety_violation_count": 0,
+      "avg_throughput_post_fault": null,
+      "peak_queue_depth": null
+    }
+  ]
+}
