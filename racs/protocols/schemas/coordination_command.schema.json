@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ridwanbale/racs-protocols/schemas/coordination_command.schema.json",
+  "title": "CoordinationCommand",
+  "description": "A coordination instruction issued by the NetworkBrain to a Site Agent.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["command_id", "type", "target_site_id", "issued_at"],
+  "additionalProperties": true,
+  "properties": {
+    "command_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Globally unique command identifier."
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "throttle_outflow",
+        "reduce_intake",
+        "redistribute_tasks",
+        "emergency_stop",
+        "safe_hold",
+        "resume_normal",
+        "adjust_speed"
+      ],
+      "description": "The type of coordination action to execute."
+    },
+    "target_site_id": {
+      "type": "string",
+      "description": "The site that should execute this command."
+    },
+    "parameters": {
+      "type": "object",
+      "description": "Command-type specific parameters (e.g. target_throughput_fraction, recipient_site).",
+      "additionalProperties": true
+    },
+    "risk_score": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Risk score that triggered this command."
+    },
+    "requires_human_approval": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, the target agent must obtain human approval before executing."
+    },
+    "issued_at": {
+      "type": "number",
+      "description": "Unix epoch timestamp when this command was issued."
+    },
+    "expires_at": {
+      "type": "number",
+      "description": "Unix epoch timestamp after which this command should be discarded if unexecuted."
+    }
+  }
+}

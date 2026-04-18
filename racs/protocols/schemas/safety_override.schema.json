@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ridwanbale/racs-protocols/schemas/safety_override.schema.json",
+  "title": "SafetyOverride",
+  "description": "Human operator override event — approving or rejecting a high-risk action.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["request_id", "site_id", "decision", "operator_id", "timestamp"],
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The override request being resolved."
+    },
+    "site_id": {
+      "type": "string",
+      "description": "The facility where the action would be executed."
+    },
+    "action_description": {
+      "type": "string",
+      "description": "Human-readable description of the action being authorised or rejected."
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["APPROVED", "REJECTED", "TIMED_OUT"],
+      "description": "The operator's decision."
+    },
+    "operator_id": {
+      "type": "string",
+      "description": "Unique identifier of the authorised operator who made this decision."
+    },
+    "justification": {
+      "type": "string",
+      "description": "Operator-provided reason for their decision."
+    },
+    "risk_score_at_decision": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "response_latency_s": {
+      "type": "number",
+      "minimum": 0.0,
+      "description": "Seconds from escalation to operator decision."
+    },
+    "timestamp": {
+      "type": "number",
+      "description": "Unix epoch timestamp of the override decision."
+    }
+  }
+}
