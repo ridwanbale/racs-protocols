@@ -11,7 +11,7 @@ from racs.agents.site_agent import AgentConfig, SiteAgent
 from racs.risk.cascade_detector import CascadeDetector
 from racs.risk.risk_aggregator import RiskAggregator
 from racs.risk.risk_signals import RiskLevel, RiskSignal, TelemetryInput
-from simulations.warehouse_sim import SimSite, WarehouseSimulation
+from simulations.warehouse_sim import SimSite, SimulationScenarioConfig, WarehouseSimulation
 
 
 def make_telemetry(site_id: str = "SITE_A", timestamp: float = 0.0) -> TelemetryInput:
@@ -117,14 +117,21 @@ def test_sim_site_allows_explicit_telemetry_timestamp() -> None:
 
 
 def test_warehouse_simulation_publishes_multiple_signals_with_simulated_time() -> None:
-    sim = WarehouseSimulation(
-        site_ids=["SITE_A"],
-        with_racs=True,
+    config = SimulationScenarioConfig(
+        steps=4,
+        site_ids=("SITE_A",),
         seed=7,
         step_duration_s=10.0,
+        fault_site="SITE_A",
+        fault_step=0,
+        fault_count=0,
+    )
+    sim = WarehouseSimulation(
+        config=config,
+        with_racs=True,
     )
 
-    sim.run(steps=4, fault_site="SITE_A", fault_at_step=99)
+    sim.run()
 
     history = sim._brain._cascade_detector._signal_history["SITE_A"]
     assert [signal.timestamp for signal in history] == [0.0, 10.0, 20.0, 30.0]
@@ -141,13 +148,20 @@ def test_warehouse_simulation_publication_timing_is_reproducible(monkeypatch) ->
             return original_ingest(self, signal, now=now)
 
         monkeypatch.setattr(NetworkBrain, "ingest_signal", capture_ingest)
-        sim = WarehouseSimulation(
-            site_ids=["SITE_A"],
-            with_racs=True,
+        config = SimulationScenarioConfig(
+            steps=4,
+            site_ids=("SITE_A",),
             seed=7,
             step_duration_s=10.0,
+            fault_site="SITE_A",
+            fault_step=0,
+            fault_count=0,
         )
-        sim.run(steps=4, fault_site="SITE_A", fault_at_step=99)
+        sim = WarehouseSimulation(
+            config=config,
+            with_racs=True,
+        )
+        sim.run()
         return timestamps
 
     assert published_timestamps() == published_timestamps()
@@ -164,14 +178,21 @@ def test_warehouse_simulation_rejects_negative_step_duration() -> None:
 
 
 def test_warehouse_simulation_accepts_positive_fractional_step_duration() -> None:
-    sim = WarehouseSimulation(
-        site_ids=["SITE_A"],
-        with_racs=True,
+    config = SimulationScenarioConfig(
+        steps=1,
+        site_ids=("SITE_A",),
         seed=7,
         step_duration_s=0.5,
+        fault_site="SITE_A",
+        fault_step=0,
+        fault_count=0,
+    )
+    sim = WarehouseSimulation(
+        config=config,
+        with_racs=True,
     )
 
-    assert sim.run(steps=1, fault_site="SITE_A", fault_at_step=99)[0]["step"] == 0
+    assert sim.run()[0]["step"] == 0
 
 
 def test_site_agent_default_wall_clock_behavior_remains_compatible(monkeypatch) -> None:

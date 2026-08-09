@@ -2,22 +2,33 @@
 
 from __future__ import annotations
 
-from simulations.warehouse_sim import WarehouseSimulation
+from dataclasses import replace
+
+from simulations.warehouse_sim import SimulationScenarioConfig, WarehouseSimulation
+
+
+SCENARIO_CONFIG = SimulationScenarioConfig(
+    steps=50,
+    site_ids=("SITE_A", "SITE_B", "SITE_C", "SITE_D"),
+    seed=77,
+    fault_site="SITE_A",
+    fault_step=15,
+    fault_count=0,
+    initial_site_queue={"SITE_A": 50},
+    initial_site_demand={"SITE_A": 2.0},
+)
 
 
 def run(steps: int = 50, with_racs: bool = True) -> dict:
     """Simulate a 2x demand spike at SITE_A and measure throughput maintenance."""
-    sites = ["SITE_A", "SITE_B", "SITE_C", "SITE_D"]
-    sim = WarehouseSimulation(site_ids=sites, with_racs=with_racs, seed=77)
+    sites = list(SCENARIO_CONFIG.site_ids)
+    config = replace(SCENARIO_CONFIG, steps=steps)
+    sim = WarehouseSimulation(config=config, with_racs=with_racs)
 
-    # Spike demand at SITE_A
-    sim._sites["SITE_A"].demand_rate = 2.0
-    sim._sites["SITE_A"].queue_length = 50
-
-    metrics = sim.run(steps=steps, fault_site="SITE_A", fault_at_step=15)
+    metrics = sim.run()
 
     # Measure average throughput across all sites after the spike
-    post_spike = [m for m in metrics if m["step"] >= 15]
+    post_spike = [m for m in metrics if m["step"] >= config.fault_step]
     avg_throughput = sum(
         sum(m["sites"][sid]["throughput"] for sid in sites if sid in m["sites"]) / len(sites)
         for m in post_spike
@@ -26,6 +37,8 @@ def run(steps: int = 50, with_racs: bool = True) -> dict:
     return {
         "scenario": "demand_spike",
         "with_racs": with_racs,
+        "fault_step": config.fault_step,
+        "fault_count": config.fault_count,
         "avg_network_throughput_post_spike": round(avg_throughput, 3),
         "metrics": metrics,
     }

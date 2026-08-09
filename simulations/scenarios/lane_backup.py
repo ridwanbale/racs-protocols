@@ -2,7 +2,21 @@
 
 from __future__ import annotations
 
-from simulations.warehouse_sim import WarehouseSimulation
+from dataclasses import replace
+
+from simulations.warehouse_sim import SimulationScenarioConfig, WarehouseSimulation
+
+
+SCENARIO_CONFIG = SimulationScenarioConfig(
+    steps=50,
+    site_ids=("SITE_A", "SITE_B", "SITE_C"),
+    seed=10,
+    fault_site="SITE_A",
+    fault_step=5,
+    fault_count=0,
+    initial_site_queue={"SITE_A": 60},
+    initial_site_demand={"SITE_A": 1.5},
+)
 
 
 def run(steps: int = 50, with_racs: bool = True) -> dict:
@@ -11,14 +25,11 @@ def run(steps: int = 50, with_racs: bool = True) -> dict:
 
     Returns summary metrics.
     """
-    sites = ["SITE_A", "SITE_B", "SITE_C"]
-    sim = WarehouseSimulation(site_ids=sites, with_racs=with_racs, seed=10)
+    sites = list(SCENARIO_CONFIG.site_ids)
+    config = replace(SCENARIO_CONFIG, steps=steps)
+    sim = WarehouseSimulation(config=config, with_racs=with_racs)
 
-    # Pre-load SITE_A with a high queue to simulate lane backup
-    sim._sites["SITE_A"].queue_length = 60
-    sim._sites["SITE_A"].demand_rate = 1.5
-
-    metrics = sim.run(steps=steps, fault_site="SITE_A", fault_at_step=5)
+    metrics = sim.run()
 
     peak_cascade = max(
         m["sites"].get("SITE_B", {}).get("queue", 0) +
@@ -30,6 +41,8 @@ def run(steps: int = 50, with_racs: bool = True) -> dict:
         "scenario": "lane_backup",
         "with_racs": with_racs,
         "steps": steps,
+        "fault_step": config.fault_step,
+        "fault_count": config.fault_count,
         "peak_cascade_queue_BC": peak_cascade,
         "metrics": metrics,
     }

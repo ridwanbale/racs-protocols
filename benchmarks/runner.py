@@ -31,12 +31,13 @@ def _run_robot_failure_bench() -> List[BenchmarkResult]:
     for with_racs in (False, True):
         r = robot_failure.run(steps=50, with_racs=with_racs)
         metrics = r["metrics"]
+        fault_step = r["fault_step"]
         results.append(BenchmarkResult(
             scenario="robot_failure",
             with_racs=with_racs,
             recovery_time_steps=r["recovery_time_steps"],
-            cascade_containment_radius=compute_cascade_radius(metrics, FAULT_STEP, FAULT_SITE),
-            avg_throughput_post_fault=compute_avg_throughput(metrics, FAULT_STEP, SITES),
+            cascade_containment_radius=compute_cascade_radius(metrics, fault_step, FAULT_SITE),
+            avg_throughput_post_fault=compute_avg_throughput(metrics, fault_step, SITES),
             peak_queue_depth=max(m["sites"].get(FAULT_SITE, {}).get("queue", 0) for m in metrics),
         ))
     return results
