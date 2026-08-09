@@ -51,12 +51,12 @@ class SimSite:
         for r in random.sample(faulted, min(count, len(faulted))):
             r.faulted = False
 
-    def to_telemetry(self) -> TelemetryInput:
+    def to_telemetry(self, timestamp: Optional[float] = None) -> TelemetryInput:
         active = sum(1 for r in self.robots if not r.faulted)
         fault_count = sum(1 for r in self.robots if r.faulted)
         throughput = max(0.1, (active / self.robot_count) * self.demand_rate)
         error_rate = fault_count / max(self.robot_count, 1) * 0.5
-        return TelemetryInput(
+        telemetry = TelemetryInput(
             site_id=self.site_id,
             queue_length=self.queue_length,
             robot_active_count=active,
@@ -64,6 +64,9 @@ class SimSite:
             throughput_rate=min(throughput, 1.0),
             error_rate_5min=error_rate,
         )
+        if timestamp is not None:
+            telemetry.timestamp = timestamp
+        return telemetry
 
 
 class WarehouseSimulation:
@@ -80,9 +83,14 @@ class WarehouseSimulation:
         site_ids: Optional[List[str]] = None,
         with_racs: bool = True,
         seed: int = 42,
+        step_duration_s: float = 1.0,
     ) -> None:
+        if step_duration_s <= 0:
+            raise ValueError("step_duration_s must be greater than 0")
+
         random.seed(seed)
         self._with_racs = with_racs
+        self._step_duration_s = step_duration_s
         ids = site_ids or ["SITE_A", "SITE_B", "SITE_C", "SITE_D"]
         self._sites: Dict[str, SimSite] = {sid: SimSite(site_id=sid) for sid in ids}
         self._metrics: List[dict] = []
@@ -92,7 +100,9 @@ class WarehouseSimulation:
             self._agents: Dict[str, SiteAgent] = {
                 sid: SiteAgent(
                     AgentConfig(site_id=sid),
-                    on_signal_publish=lambda sig: self._brain.ingest_signal(sig),
+                    on_signal_publish=lambda sig: self._brain.ingest_signal(
+                        sig, now=sig.timestamp
+                    ),
                 )
                 for sid in ids
             }
@@ -118,6 +128,8 @@ class WarehouseSimulation:
         print("=" * 60)
 
         for step in range(steps):
+            simulated_time = step * self._step_duration_s
+
             if step == fault_at_step:
                 faulted = self._sites[fault_site].inject_fault(count=5)
                 self._sites[fault_site].queue_length += 30
@@ -126,10 +138,10 @@ class WarehouseSimulation:
             step_metrics: dict = {"step": step, "sites": {}}
 
             for sid, site in self._sites.items():
-                telemetry = site.to_telemetry()
+                telemetry = site.to_telemetry(timestamp=simulated_time)
 
                 if self._with_racs and sid in self._agents:
-                    self._agents[sid].tick(telemetry)
+                    self._agents[sid].tick(telemetry, now=simulated_time)
 
                 # Without RACS: simulate cascade manually
                 if not self._with_racs and step > fault_at_step and sid != fault_site:

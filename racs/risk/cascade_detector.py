@@ -47,10 +47,11 @@ class CascadeDetector:
         self._min_sites = min_sites_for_cascade
         self._signal_history: Dict[str, List[RiskSignal]] = {}
 
-    def ingest(self, signal: RiskSignal) -> None:
+    def ingest(self, signal: RiskSignal, now: Optional[float] = None) -> None:
         """Record a new risk signal, pruning signals older than the window."""
         history = self._signal_history.setdefault(signal.site_id, [])
-        cutoff = time.time() - self._signal_window_s
+        effective_now = time.time() if now is None else now
+        cutoff = effective_now - self._signal_window_s
         self._signal_history[signal.site_id] = [s for s in history if s.timestamp >= cutoff]
         self._signal_history[signal.site_id].append(signal)
 

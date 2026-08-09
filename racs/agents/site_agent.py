@@ -49,7 +49,7 @@ class SiteAgent:
         self._on_signal_publish = on_signal_publish
 
         self._latest_signal: Optional[RiskSignal] = None
-        self._last_publish: float = 0.0
+        self._last_publish: Optional[float] = None
         self._connected: bool = True   # False when network brain is unreachable
         self._robot_states: Dict[str, str] = {}   # robot_id -> state
 
@@ -59,20 +59,25 @@ class SiteAgent:
             description=f"SiteAgent started for {self._site_id}",
         )
 
-    def tick(self, telemetry: TelemetryInput) -> Optional[RiskSignal]:
+    def tick(self, telemetry: TelemetryInput, now: Optional[float] = None) -> Optional[RiskSignal]:
         """
         Process one observation cycle. Returns a new RiskSignal if it's time to publish.
         Call this periodically (e.g. every second) from a control loop.
         """
+        effective_now = time.time() if now is None else now
         signal = self._predictor.predict(telemetry)
+        signal.timestamp = effective_now
         self._latest_signal = signal
 
         # Automatic degradation management
         self._manage_degradation(signal)
 
-        now = time.time()
-        if now - self._last_publish >= self._config.risk_publish_interval_s:
-            self._last_publish = now
+        should_publish = (
+            self._last_publish is None
+            or effective_now - self._last_publish >= self._config.risk_publish_interval_s
+        )
+        if should_publish:
+            self._last_publish = effective_now
             if self._on_signal_publish:
                 self._on_signal_publish(signal)
             return signal

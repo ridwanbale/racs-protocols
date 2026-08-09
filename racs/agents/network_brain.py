@@ -41,13 +41,16 @@ class NetworkBrain:
         self._active_recovery_plans: Dict[str, RecoveryPlan] = {}
         self._site_utilisation: Dict[str, float] = {}
 
-    def ingest_signal(self, signal: RiskSignal) -> Optional[CascadeAlert]:
+    def ingest_signal(
+        self, signal: RiskSignal, now: Optional[float] = None
+    ) -> Optional[CascadeAlert]:
         """
         Process an incoming risk signal from a site agent.
         Returns a CascadeAlert if a cascade is detected.
         """
+        effective_now = time.time() if now is None else now
         self._aggregator.update(signal)
-        self._cascade_detector.ingest(signal)
+        self._cascade_detector.ingest(signal, now=effective_now)
 
         self._audit.log(
             AuditEventType.RISK_SIGNAL,
@@ -56,7 +59,7 @@ class NetworkBrain:
             details=signal.to_dict(),
         )
 
-        current = self._aggregator.all_current()
+        current = self._aggregator.all_current(now=effective_now)
         alert = self._cascade_detector.detect(current)
 
         if alert:
@@ -68,7 +71,7 @@ class NetworkBrain:
             )
             self._respond_to_cascade(alert)
 
-        self._rebalance_if_needed()
+        self._rebalance_if_needed(now=effective_now)
         return alert
 
     def _respond_to_cascade(self, alert: CascadeAlert) -> None:
@@ -88,10 +91,10 @@ class NetworkBrain:
         }
         self._issue_command(alert.origin_site, command)
 
-    def _rebalance_if_needed(self) -> None:
+    def _rebalance_if_needed(self, now: Optional[float] = None) -> None:
         if not self._site_utilisation:
             return
-        current_signals = self._aggregator.all_current()
+        current_signals = self._aggregator.all_current(now=now)
         risk_scores = {sid: sig.composite_score for sid, sig in current_signals.items()}
 
         # Don't send work toward high-risk sites
