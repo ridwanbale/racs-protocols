@@ -10,6 +10,7 @@ from __future__ import annotations
 import random
 import time
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from typing import Dict, List, Mapping, Optional, Tuple
 
 from racs.agents.network_brain import NetworkBrain
@@ -30,6 +31,9 @@ class SimulationScenarioConfig:
     fault_robot_ids: Optional[tuple[str, ...]] = None
     initial_site_queue: Mapping[str, int] = field(default_factory=dict)
     initial_site_demand: Mapping[str, float] = field(default_factory=dict)
+    tasks_per_step: float = 1.0
+    base_service_steps: int = 3
+    task_deadline_steps: int = 10
 
     def __post_init__(self) -> None:
         if self.steps <= 0:
@@ -50,6 +54,12 @@ class SimulationScenarioConfig:
             raise ValueError("fault_robot_ids count must match fault_count")
         if self.fault_robot_ids is not None and len(set(self.fault_robot_ids)) != len(self.fault_robot_ids):
             raise ValueError("fault_robot_ids cannot contain duplicate robot IDs")
+        if self.tasks_per_step < 0:
+            raise ValueError("tasks_per_step must be greater than or equal to 0")
+        if self.base_service_steps <= 0:
+            raise ValueError("base_service_steps must be greater than 0")
+        if self.task_deadline_steps <= 0:
+            raise ValueError("task_deadline_steps must be greater than 0")
 
         valid_sites = set(self.site_ids)
         for site_id, queue in self.initial_site_queue.items():
@@ -64,12 +74,50 @@ class SimulationScenarioConfig:
                 raise ValueError("initial_site_demand values cannot be negative")
 
 
+class TaskStatus(Enum):
+    QUEUED = "QUEUED"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+@dataclass
+class SimTask:
+    task_id: str
+    created_step: int
+    deadline_step: int
+    assigned_robot_id: Optional[str] = None
+    started_step: Optional[int] = None
+    completed_step: Optional[int] = None
+    status: TaskStatus = TaskStatus.QUEUED
+
+    @property
+    def completion_latency_steps(self) -> Optional[int]:
+        if self.completed_step is None:
+            return None
+        return self.completed_step - self.created_step
+
+    @property
+    def is_late(self) -> bool:
+        return self.completed_step is not None and self.completed_step > self.deadline_step
+
+
 @dataclass
 class SimRobot:
     robot_id: str
     site_id: str
     faulted: bool = False
     speed_factor: float = 1.0
+    available: bool = True
+    current_task_id: Optional[str] = None
+    remaining_service_work: int = 0
+    service_time_multiplier: float = 1.0
+    completed_task_count: int = 0
+    busy_steps: int = 0
+
+    @property
+    def can_accept_task(self) -> bool:
+        return self.available and not self.faulted and self.current_task_id is None
 
 
 @dataclass
@@ -79,6 +127,10 @@ class SimSite:
     queue_length: int = 10
     demand_rate: float = 1.0   # multiplier relative to baseline
     robots: List[SimRobot] = field(default_factory=list)
+    tasks: Dict[str, SimTask] = field(default_factory=dict)
+    _next_task_index: int = 0
+    _last_step: int = 0
+    _arrival_credit: float = 0.0
 
     def __post_init__(self) -> None:
         self.robots = [
@@ -94,6 +146,7 @@ class SimSite:
         faulted = sampler.sample(healthy, count)
         for r in faulted:
             r.faulted = True
+            r.available = False
         return faulted
 
     def inject_fault_by_ids(self, robot_ids: tuple[str, ...]) -> List[SimRobot]:
@@ -107,6 +160,7 @@ class SimSite:
         faulted = [robots_by_id[robot_id] for robot_id in robot_ids]
         for robot in faulted:
             robot.faulted = True
+            robot.available = False
         return faulted
 
     def recover_robots(self, count: int = 1) -> None:
@@ -114,22 +168,147 @@ class SimSite:
         for r in random.sample(faulted, min(count, len(faulted))):
             r.faulted = False
 
-    def to_telemetry(self, timestamp: Optional[float] = None) -> TelemetryInput:
+    def to_telemetry(
+        self,
+        timestamp: Optional[float] = None,
+        step_duration_s: float = 1.0,
+    ) -> TelemetryInput:
         active = sum(1 for r in self.robots if not r.faulted)
         fault_count = sum(1 for r in self.robots if r.faulted)
-        throughput = max(0.1, (active / self.robot_count) * self.demand_rate)
+        completed = [task for task in self.tasks.values() if task.status == TaskStatus.COMPLETED]
+        latencies = [
+            task.completion_latency_steps
+            for task in completed
+            if task.completion_latency_steps is not None
+        ]
+        capacity = max(active, 1)
+        recent_completed = sum(1 for task in completed if task.completed_step == self._last_step)
+        throughput = min(recent_completed / capacity, 1.0) if active else 0.0
         error_rate = fault_count / max(self.robot_count, 1) * 0.5
         telemetry = TelemetryInput(
             site_id=self.site_id,
-            queue_length=self.queue_length,
+            queue_length=self.queued_task_count,
             robot_active_count=active,
             robot_fault_count=fault_count,
             throughput_rate=min(throughput, 1.0),
             error_rate_5min=error_rate,
+            avg_task_latency_s=(
+                float(sum(latencies) / len(latencies) * step_duration_s)
+                if latencies else 0.0
+            ),
         )
         if timestamp is not None:
             telemetry.timestamp = timestamp
         return telemetry
+
+    @property
+    def queued_task_count(self) -> int:
+        return sum(1 for task in self.tasks.values() if task.status == TaskStatus.QUEUED)
+
+    @property
+    def completed_task_count(self) -> int:
+        return sum(1 for task in self.tasks.values() if task.status == TaskStatus.COMPLETED)
+
+    @property
+    def late_task_count(self) -> int:
+        return sum(1 for task in self.tasks.values() if task.is_late)
+
+    @property
+    def failed_task_count(self) -> int:
+        return sum(1 for task in self.tasks.values() if task.status == TaskStatus.FAILED)
+
+    def create_tasks(self, count: int, step: int, deadline_steps: int) -> List[SimTask]:
+        created = []
+        for _ in range(count):
+            task_id = f"{self.site_id}_T{self._next_task_index:06d}"
+            self._next_task_index += 1
+            task = SimTask(
+                task_id=task_id,
+                created_step=step,
+                deadline_step=step + deadline_steps,
+            )
+            self.tasks[task_id] = task
+            created.append(task)
+        self.queue_length = self.queued_task_count
+        return created
+
+    def arrival_count_for_step(self, expected_arrivals: float) -> int:
+        if expected_arrivals < 0:
+            raise ValueError("expected task arrivals cannot be negative")
+        self._arrival_credit += expected_arrivals
+        arrivals = int(self._arrival_credit + 1e-12)
+        self._arrival_credit -= arrivals
+        return arrivals
+
+    def service_in_progress(self, step: int) -> List[SimTask]:
+        completed = []
+        for robot in self.robots:
+            if robot.current_task_id is None or robot.faulted or not robot.available:
+                continue
+
+            robot.busy_steps += 1
+            robot.remaining_service_work -= 1
+            if robot.remaining_service_work > 0:
+                continue
+
+            task = self.tasks[robot.current_task_id]
+            task.status = TaskStatus.COMPLETED
+            task.completed_step = step
+            completed.append(task)
+            robot.completed_task_count += 1
+            robot.current_task_id = None
+            robot.remaining_service_work = 0
+
+        return completed
+
+    def assign_queued_tasks(self, step: int, base_service_steps: int) -> None:
+        queued = sorted(
+            (task for task in self.tasks.values() if task.status == TaskStatus.QUEUED),
+            key=lambda task: task.task_id,
+        )
+        available = sorted(
+            (robot for robot in self.robots if robot.can_accept_task),
+            key=lambda robot: (robot.completed_task_count, robot.robot_id),
+        )
+
+        for task, robot in zip(queued, available):
+            task.status = TaskStatus.IN_PROGRESS
+            task.assigned_robot_id = robot.robot_id
+            task.started_step = step
+            robot.current_task_id = task.task_id
+            robot.remaining_service_work = max(
+                1,
+                int(round(base_service_steps * robot.service_time_multiplier)),
+            )
+
+        self.queue_length = self.queued_task_count
+
+    def task_metrics(self, completed_this_step: List[SimTask], step: int) -> dict:
+        completed = [task for task in self.tasks.values() if task.status == TaskStatus.COMPLETED]
+        latencies = [
+            task.completion_latency_steps
+            for task in completed
+            if task.completion_latency_steps is not None
+        ]
+        elapsed_steps = max(step + 1, 1)
+        return {
+            "tasks_created": len(self.tasks),
+            "tasks_completed": len(completed),
+            "tasks_completed_step": len(completed_this_step),
+            "tasks_late": self.late_task_count,
+            "tasks_failed": self.failed_task_count,
+            "avg_completion_latency": round(sum(latencies) / len(latencies), 3) if latencies else 0.0,
+            "per_robot_completed": {
+                robot.robot_id: robot.completed_task_count for robot in self.robots
+            },
+            "per_robot_busy_steps": {
+                robot.robot_id: robot.busy_steps for robot in self.robots
+            },
+            "per_robot_utilization": {
+                robot.robot_id: round(robot.busy_steps / elapsed_steps, 3)
+                for robot in self.robots
+            },
+        }
 
 
 class WarehouseSimulation:
@@ -165,11 +344,17 @@ class WarehouseSimulation:
             sid: SimSite(
                 site_id=sid,
                 robot_count=config.robot_count,
-                queue_length=config.initial_site_queue.get(sid, 10),
+                queue_length=0,
                 demand_rate=config.initial_site_demand.get(sid, 1.0),
             )
             for sid in ids
         }
+        for sid, site in self._sites.items():
+            site.create_tasks(
+                count=config.initial_site_queue.get(sid, 10),
+                step=0,
+                deadline_steps=config.task_deadline_steps,
+            )
         self._metrics: List[dict] = []
 
         if with_racs:
@@ -206,7 +391,7 @@ class WarehouseSimulation:
             return
         cmd_type = command.get("type", "")
         if cmd_type == "throttle_outflow":
-            site.queue_length = max(0, int(site.queue_length * 0.7))
+            site.demand_rate = max(0.3, site.demand_rate * 0.7)
         elif cmd_type == "reduce_intake":
             site.demand_rate = max(0.3, site.demand_rate * 0.8)
 
@@ -238,6 +423,18 @@ class WarehouseSimulation:
         for step in range(config.steps):
             simulated_time = step * self._step_duration_s
 
+            created_by_site: Dict[str, int] = {}
+            for site in self._sites.values():
+                expected_arrivals = config.tasks_per_step * site.demand_rate
+                arrivals = site.arrival_count_for_step(expected_arrivals)
+                created_by_site[site.site_id] = len(
+                    site.create_tasks(
+                        count=arrivals,
+                        step=step,
+                        deadline_steps=config.task_deadline_steps,
+                    )
+                )
+
             faulted_robot_ids: List[str] = []
             if step == config.fault_step and config.fault_count > 0:
                 fault_site_obj = self._sites[config.fault_site]
@@ -249,7 +446,12 @@ class WarehouseSimulation:
                         rng=self._rng,
                     )
                 faulted_robot_ids = [robot.robot_id for robot in faulted]
-                fault_site_obj.queue_length += 30
+                fault_site_obj.create_tasks(
+                    count=30,
+                    step=step,
+                    deadline_steps=config.task_deadline_steps,
+                )
+                created_by_site[config.fault_site] += 30
                 print(
                     f"\n[Step {step:3d}] FAULT INJECTED at {config.fault_site}: "
                     f"{len(faulted)} robots"
@@ -258,32 +460,46 @@ class WarehouseSimulation:
             step_metrics: dict = {"step": step, "faulted_robot_ids": faulted_robot_ids, "sites": {}}
 
             for sid, site in self._sites.items():
-                telemetry = site.to_telemetry(timestamp=simulated_time)
+                site._last_step = step
+                completed_this_step = site.service_in_progress(step)
+                site.assign_queued_tasks(
+                    step=step,
+                    base_service_steps=config.base_service_steps,
+                )
+                telemetry = site.to_telemetry(
+                    timestamp=simulated_time,
+                    step_duration_s=self._step_duration_s,
+                )
 
                 if self._with_racs and sid in self._agents:
                     self._agents[sid].tick(telemetry, now=simulated_time)
 
                 # Without RACS: simulate cascade manually
                 if not self._with_racs and step > config.fault_step and sid != config.fault_site:
-                    if self._sites[config.fault_site].queue_length > 30:
-                        site.queue_length = min(site.queue_length + 3, 100)
+                    if self._sites[config.fault_site].queued_task_count > 30:
+                        added = min(3, max(100 - site.queued_task_count, 0))
+                        site.create_tasks(
+                            count=added,
+                            step=step,
+                            deadline_steps=config.task_deadline_steps,
+                        )
+                        created_by_site[sid] += added
 
                 fault_count = sum(1 for r in site.robots if r.faulted)
                 throughput = telemetry.throughput_rate
+                task_metrics = site.task_metrics(completed_this_step, step=step)
                 step_metrics["sites"][sid] = {
-                    "queue": site.queue_length,
+                    "queue": site.queued_task_count,
                     "faults": fault_count,
                     "throughput": round(throughput, 3),
+                    "tasks_created_step": created_by_site[sid],
+                    **task_metrics,
                 }
 
             self._metrics.append(step_metrics)
 
             if step % 10 == 0:
                 self._print_step(step, step_metrics)
-
-            # Gradual queue drain (baseline recovery)
-            for site in self._sites.values():
-                site.queue_length = max(0, site.queue_length - 2)
 
         self._print_summary()
         return self._metrics
