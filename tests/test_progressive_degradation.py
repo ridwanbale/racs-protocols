@@ -304,7 +304,7 @@ def test_robot_makes_no_service_progress_after_hard_failure() -> None:
         minimum_service_capacity=0.5,
         hard_failure_capacity_threshold=0.5,
     )
-    sim = WarehouseSimulation(config=config, with_racs=False)
+    sim = WarehouseSimulation(config=config, with_racs=True)
 
     sim.run()
     robot = sim._sites["SITE_A"].robots[0]

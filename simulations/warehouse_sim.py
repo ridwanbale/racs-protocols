@@ -132,6 +132,9 @@ class SimTask:
     started_step: Optional[int] = None
     completed_step: Optional[int] = None
     status: TaskStatus = TaskStatus.QUEUED
+    reassignment_count: int = 0
+    last_requeued_step: Optional[int] = None
+    last_requeued_from_robot_id: Optional[str] = None
 
     @property
     def completion_latency_steps(self) -> Optional[int]:
@@ -347,7 +350,8 @@ class SimSite:
 
         return completed
 
-    def assign_queued_tasks(self, step: int, base_service_steps: int) -> None:
+    def assign_queued_tasks(self, step: int, base_service_steps: int) -> List[dict]:
+        reassignment_events = []
         queued = sorted(
             (task for task in self.tasks.values() if task.status == TaskStatus.QUEUED),
             key=lambda task: task.task_id,
@@ -366,8 +370,46 @@ class SimSite:
                 1.0,
                 float(base_service_steps * robot.service_time_multiplier),
             )
+            if task.last_requeued_from_robot_id is not None:
+                task.reassignment_count += 1
+                reassignment_events.append({
+                    "task_id": task.task_id,
+                    "from_robot": task.last_requeued_from_robot_id,
+                    "to_robot": robot.robot_id,
+                    "step": step,
+                    "stranded_task_duration": (
+                        step - task.last_requeued_step
+                        if task.last_requeued_step is not None else 0
+                    ),
+                })
+                task.last_requeued_from_robot_id = None
+                task.last_requeued_step = None
 
         self.queue_length = self.queued_task_count
+        return reassignment_events
+
+    def recover_stranded_tasks_from_hard_failed_robots(self, step: int) -> List[dict]:
+        recovery_events = []
+        for robot in self.robots:
+            if not robot.hard_failed or robot.current_task_id is None:
+                continue
+
+            task = self.tasks[robot.current_task_id]
+            task.status = TaskStatus.QUEUED
+            task.assigned_robot_id = None
+            task.started_step = None
+            task.last_requeued_step = step
+            task.last_requeued_from_robot_id = robot.robot_id
+            recovery_events.append({
+                "task_id": task.task_id,
+                "from_robot": robot.robot_id,
+                "step": step,
+            })
+            robot.current_task_id = None
+            robot.remaining_service_work = 0.0
+
+        self.queue_length = self.queued_task_count
+        return recovery_events
 
     def task_metrics(self, completed_this_step: List[SimTask], step: int) -> dict:
         completed = [task for task in self.tasks.values() if task.status == TaskStatus.COMPLETED]
@@ -383,6 +425,7 @@ class SimSite:
             "tasks_completed_step": len(completed_this_step),
             "tasks_late": self.late_task_count,
             "tasks_failed": self.failed_task_count,
+            "tasks_reassigned": sum(task.reassignment_count for task in self.tasks.values()),
             "avg_completion_latency": round(sum(latencies) / len(latencies), 3) if latencies else 0.0,
             "per_robot_completed": {
                 robot.robot_id: robot.completed_task_count for robot in self.robots
@@ -597,6 +640,13 @@ class WarehouseSimulation:
                 "hard_failure_step": (
                     degrading_robot.hard_failure_step if degrading_robot is not None else None
                 ),
+                "robot_failure_step": (
+                    degrading_robot.hard_failure_step if degrading_robot is not None else None
+                ),
+                "baseline_reaction_step": None,
+                "task_reassignment_step": None,
+                "reassignment_events": [],
+                "baseline_recovery_events": [],
                 "service_capacity_by_step": (
                     {
                         self._degrading_robot_id: round(
@@ -613,10 +663,13 @@ class WarehouseSimulation:
             for sid, site in self._sites.items():
                 site._last_step = step
                 completed_this_step = site.service_in_progress(step)
-                site.assign_queued_tasks(
+                reassignment_events = site.assign_queued_tasks(
                     step=step,
                     base_service_steps=config.base_service_steps,
                 )
+                if reassignment_events:
+                    step_metrics["reassignment_events"].extend(reassignment_events)
+                    step_metrics["task_reassignment_step"] = step
                 telemetry = site.to_telemetry(
                     timestamp=simulated_time,
                     step_duration_s=self._step_duration_s,
@@ -625,6 +678,12 @@ class WarehouseSimulation:
 
                 if self._with_racs and sid in self._agents:
                     self._agents[sid].tick(telemetry, now=simulated_time)
+
+                if not self._with_racs:
+                    recovery_events = site.recover_stranded_tasks_from_hard_failed_robots(step)
+                    if recovery_events:
+                        step_metrics["baseline_recovery_events"].extend(recovery_events)
+                        step_metrics["baseline_reaction_step"] = step
 
                 # Without RACS: simulate cascade manually
                 if not self._with_racs and step > config.fault_step and sid != config.fault_site:
