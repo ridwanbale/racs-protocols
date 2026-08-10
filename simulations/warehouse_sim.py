@@ -22,6 +22,8 @@ from racs.risk.risk_signals import RiskLevel, RiskSignal, TelemetryInput
 DEFAULT_FAULT_SITE = "SITE_A"
 DEFAULT_FAULT_STEP = 10
 DEFAULT_FAULT_COUNT = 5
+ARRIVAL_MODE_DETERMINISTIC_RATE = "deterministic_rate"
+ARRIVAL_MODE_SEEDED_TIMING = "seeded_timing"
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,8 @@ class SimulationScenarioConfig:
     initial_site_queue: Mapping[str, int] = field(default_factory=dict)
     initial_site_demand: Mapping[str, float] = field(default_factory=dict)
     tasks_per_step: float = 1.0
+    arrival_mode: str = ARRIVAL_MODE_DETERMINISTIC_RATE
+    max_arrivals_per_step: int = 2
     base_service_steps: int = 3
     task_deadline_steps: int = 10
     workstation_enabled: bool = False
@@ -80,6 +84,15 @@ class SimulationScenarioConfig:
             raise ValueError("fault_robot_ids cannot contain duplicate robot IDs")
         if self.tasks_per_step < 0:
             raise ValueError("tasks_per_step must be greater than or equal to 0")
+        if self.arrival_mode not in {
+            ARRIVAL_MODE_DETERMINISTIC_RATE,
+            ARRIVAL_MODE_SEEDED_TIMING,
+        }:
+            raise ValueError(
+                "arrival_mode must be 'deterministic_rate' or 'seeded_timing'"
+            )
+        if self.max_arrivals_per_step <= 0:
+            raise ValueError("max_arrivals_per_step must be greater than 0")
         if self.base_service_steps <= 0:
             raise ValueError("base_service_steps must be greater than 0")
         if self.task_deadline_steps <= 0:
@@ -764,6 +777,7 @@ class WarehouseSimulation:
                 deadline_steps=config.task_deadline_steps,
             )
             site.seed_workstation_buffer(config.initial_workstation_buffer.get(sid, 0))
+        self._seeded_arrivals_by_site = self._build_seeded_arrival_sequences(config)
         self._degrading_robot_id: Optional[str] = None
         if config.degradation_enabled:
             self._degrading_robot_id = self._configure_degrading_robot(config)
@@ -797,6 +811,50 @@ class WarehouseSimulation:
         else:
             self._brain = None
             self._agents = {}
+
+    @staticmethod
+    def _fixed_total_arrivals(expected_total: float) -> int:
+        return int(expected_total + 0.5)
+
+    def _build_seeded_arrival_sequences(
+        self,
+        config: SimulationScenarioConfig,
+    ) -> Dict[str, List[int]]:
+        if config.arrival_mode != ARRIVAL_MODE_SEEDED_TIMING:
+            return {}
+
+        sequences: Dict[str, List[int]] = {}
+        for site_id, site in self._sites.items():
+            expected_total = config.steps * config.tasks_per_step * site.demand_rate
+            total_arrivals = self._fixed_total_arrivals(expected_total)
+            capacity = config.steps * config.max_arrivals_per_step
+            if total_arrivals > capacity:
+                raise ValueError(
+                    "max_arrivals_per_step cannot accommodate fixed seeded workload"
+                )
+            sequence = [0 for _ in range(config.steps)]
+            rng = random.Random(f"{config.seed}:{site_id}:arrival_timing")
+            for _ in range(total_arrivals):
+                eligible_steps = [
+                    step for step, count in enumerate(sequence)
+                    if count < config.max_arrivals_per_step
+                ]
+                chosen_step = rng.choice(eligible_steps)
+                sequence[chosen_step] += 1
+            sequences[site_id] = sequence
+        return sequences
+
+    def _arrival_count_for_site(
+        self,
+        site: SimSite,
+        config: SimulationScenarioConfig,
+        step: int,
+    ) -> int:
+        if config.arrival_mode == ARRIVAL_MODE_SEEDED_TIMING:
+            return self._seeded_arrivals_by_site[site.site_id][step]
+
+        expected_arrivals = config.tasks_per_step * site.demand_rate
+        return site.arrival_count_for_step(expected_arrivals)
 
     def _configure_degrading_robot(self, config: SimulationScenarioConfig) -> str:
         if config.degradation_site is None:
@@ -971,9 +1029,10 @@ class WarehouseSimulation:
                     robot.update_service_capacity(step)
 
             created_by_site: Dict[str, int] = {}
+            workload_arrivals_by_site: Dict[str, int] = {}
             for site in self._sites.values():
-                expected_arrivals = config.tasks_per_step * site.demand_rate
-                arrivals = site.arrival_count_for_step(expected_arrivals)
+                arrivals = self._arrival_count_for_site(site, config, step)
+                workload_arrivals_by_site[site.site_id] = arrivals
                 created_by_site[site.site_id] = len(
                     site.create_tasks(
                         count=arrivals,
@@ -1186,6 +1245,7 @@ class WarehouseSimulation:
                     "queue": site.queued_task_count,
                     "faults": fault_count,
                     "throughput": round(throughput, 3),
+                    "workload_arrivals_step": workload_arrivals_by_site[sid],
                     "tasks_created_step": created_by_site[sid],
                     **task_metrics,
                 }

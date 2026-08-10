@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 import platform
@@ -39,12 +40,17 @@ class RacsV1ExperimentConfig:
     scenario: SimulationScenarioConfig
     trial_count: int = 30
     first_seed: int = 1000
+    workstation_wip_levels: tuple[int, ...] = (0,)
     racs_intervention_risk_level: RiskLevel = RiskLevel.MEDIUM
     racs_robot_anomaly_threshold: float = 1.0
 
     def __post_init__(self) -> None:
         if self.trial_count <= 0:
             raise ValueError("trial_count must be greater than 0")
+        if not self.workstation_wip_levels:
+            raise ValueError("workstation_wip_levels cannot be empty")
+        if any(level < 0 for level in self.workstation_wip_levels):
+            raise ValueError("workstation_wip_levels values cannot be negative")
 
     @property
     def seeds(self) -> tuple[int, ...]:
@@ -84,6 +90,46 @@ def default_experiment_config(
     )
 
 
+def robustness_experiment_config(
+    trial_count: int = 30,
+    first_seed: int = 1000,
+) -> RacsV1ExperimentConfig:
+    scenario = SimulationScenarioConfig(
+        steps=60,
+        step_duration_s=10.0,
+        site_ids=("SITE_A",),
+        robot_count=4,
+        seed=first_seed,
+        fault_site="SITE_A",
+        fault_step=0,
+        fault_count=0,
+        initial_site_queue={"SITE_A": 0},
+        initial_site_demand={"SITE_A": 1.0},
+        tasks_per_step=0.85,
+        arrival_mode="seeded_timing",
+        max_arrivals_per_step=2,
+        base_service_steps=4,
+        task_deadline_steps=16,
+        workstation_enabled=True,
+        workstation_processing_rate=0.85,
+        initial_workstation_buffer={"SITE_A": 0},
+        workstation_buffer_at_degradation_start={"SITE_A": 0},
+        degradation_enabled=True,
+        degradation_site="SITE_A",
+        degradation_robot_id="SITE_A_R000",
+        degradation_start_step=15,
+        degradation_rate_per_step=0.1,
+        minimum_service_capacity=0.2,
+        hard_failure_capacity_threshold=0.2,
+    )
+    return RacsV1ExperimentConfig(
+        scenario=scenario,
+        trial_count=trial_count,
+        first_seed=first_seed,
+        workstation_wip_levels=(0, 1, 2, 4),
+    )
+
+
 def run_experiment(
     config: RacsV1ExperimentConfig,
     output_root: Path,
@@ -96,16 +142,24 @@ def run_experiment(
 
     trial_rows: list[dict[str, Any]] = []
     paired_rows: list[dict[str, Any]] = []
-    for seed in config.seeds:
-        paired_trials = run_paired_trial(config, seed)
-        trial_rows.extend(paired_trials)
-        paired_rows.append(derive_paired_metrics(paired_trials))
+    for wip_level in config.workstation_wip_levels:
+        for seed in config.seeds:
+            paired_trials = run_paired_trial(
+                config,
+                seed,
+                workstation_wip_level=wip_level,
+            )
+            trial_rows.extend(paired_trials)
+            paired_rows.append(derive_paired_metrics(paired_trials))
 
     summary = build_summary(trial_rows, paired_rows)
+    wip_summary = build_wip_summary(paired_rows)
     manifest = build_manifest(config, experiment_id)
 
     _write_csv(output_dir / "trials.csv", trial_rows)
     _write_csv(output_dir / "paired_comparison.csv", paired_rows)
+    _write_csv(output_dir / "paired_results.csv", paired_rows)
+    _write_csv(output_dir / "wip_summary.csv", wip_summary)
     _write_json(output_dir / "summary.json", summary)
     _write_json(output_dir / "manifest.json", manifest)
 
@@ -115,6 +169,7 @@ def run_experiment(
         "manifest": manifest,
         "trials": trial_rows,
         "paired": paired_rows,
+        "wip_summary": wip_summary,
         "summary": summary,
     }
 
@@ -122,8 +177,19 @@ def run_experiment(
 def run_paired_trial(
     config: RacsV1ExperimentConfig,
     seed: int,
+    *,
+    workstation_wip_level: Optional[int] = None,
 ) -> list[dict[str, Any]]:
-    base = replace(config.scenario, seed=seed)
+    if workstation_wip_level is None or not config.scenario.workstation_enabled:
+        base = replace(config.scenario, seed=seed)
+    else:
+        base = replace(
+            config.scenario,
+            seed=seed,
+            workstation_buffer_at_degradation_start={
+                site_id: workstation_wip_level for site_id in config.scenario.site_ids
+            },
+        )
     healthy_config = replace(
         base,
         degradation_enabled=False,
@@ -238,6 +304,9 @@ def derive_paired_metrics(trials: Iterable[dict[str, Any]]) -> dict[str, Any]:
         "experiment_name": EXPERIMENT_NAME,
         "experiment_version": EXPERIMENT_VERSION,
         "seed": baseline["seed"],
+        "workstation_wip_level": baseline.get("workstation_wip_level"),
+        "arrival_sequence_hash": baseline.get("arrival_sequence_hash"),
+        "tasks_completed_delta": racs["tasks_completed"] - baseline["tasks_completed"],
         "completed_task_delta": racs["tasks_completed"] - baseline["tasks_completed"],
         "late_task_delta": racs["tasks_late"] - baseline["tasks_late"],
         "queue_auc_delta": racs["queue_auc"] - baseline["queue_auc"],
@@ -274,6 +343,33 @@ def derive_paired_metrics(trials: Iterable[dict[str, Any]]) -> dict[str, Any]:
             racs.get("downstream_completion_deficit_vs_healthy", 0)
             - baseline.get("downstream_completion_deficit_vs_healthy", 0)
         ),
+        "baseline_degradation_induced_cascade_started": baseline.get(
+            "degradation_induced_cascade_started",
+            False,
+        ),
+        "racs_degradation_induced_cascade_started": racs.get(
+            "degradation_induced_cascade_started",
+            False,
+        ),
+        "baseline_degradation_induced_cascade_start_step": baseline.get(
+            "degradation_induced_cascade_start_step"
+        ),
+        "racs_degradation_induced_cascade_start_step": racs.get(
+            "degradation_induced_cascade_start_step"
+        ),
+        "cascade_start_delta": _optional_delta(
+            racs.get("degradation_induced_cascade_start_step"),
+            baseline.get("degradation_induced_cascade_start_step"),
+        ),
+        "intervention_to_baseline_propagation_margin": _optional_delta(
+            baseline.get("degradation_induced_cascade_start_step"),
+            racs.get("intervention_step"),
+        ),
+        "racs_intervention_before_baseline_cascade": _is_before(
+            racs.get("intervention_step"),
+            baseline.get("degradation_induced_cascade_start_step"),
+        ),
+        "outcome_categories": _outcome_categories(baseline, racs),
         "baseline_throughput_degradation": _throughput_degradation(
             healthy_completed, baseline["tasks_completed"]
         ),
@@ -295,6 +391,7 @@ def build_summary(
         "tasks_completed",
         "tasks_late",
         "tasks_failed",
+        "unfinished_tasks_at_end",
         "final_queue_length",
         "peak_queue_length",
         "queue_auc",
@@ -315,6 +412,7 @@ def build_summary(
     ]
     delta_metrics = [
         "completed_task_delta",
+        "tasks_completed_delta",
         "late_task_delta",
         "queue_auc_delta",
         "peak_queue_delta",
@@ -326,6 +424,8 @@ def build_summary(
         "positive_excess_missed_processing_delta",
         "net_missed_workstation_processing_deficit_delta",
         "downstream_completion_deficit_delta",
+        "cascade_start_delta",
+        "intervention_to_baseline_propagation_margin",
         "throughput_degradation_delta",
     ]
     degradation_metrics = [
@@ -359,6 +459,93 @@ def build_summary(
     }
 
 
+def build_wip_summary(paired_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for wip_level in sorted({row.get("workstation_wip_level") for row in paired_rows}):
+        level_rows = [
+            row for row in paired_rows
+            if row.get("workstation_wip_level") == wip_level
+        ]
+        before = [
+            row for row in level_rows
+            if row.get("racs_intervention_before_baseline_cascade")
+        ]
+        at_or_after = [
+            row for row in level_rows
+            if not row.get("racs_intervention_before_baseline_cascade")
+        ]
+        rows.append({
+            "workstation_wip_level": wip_level,
+            "seed_count": len(level_rows),
+            "racs_before_baseline_cascade_count": len(before),
+            "racs_before_baseline_cascade_fraction": _fraction(len(before), len(level_rows)),
+            "baseline_cascade_incidence": _fraction(
+                sum(1 for row in level_rows if row["baseline_degradation_induced_cascade_started"]),
+                len(level_rows),
+            ),
+            "racs_cascade_incidence": _fraction(
+                sum(1 for row in level_rows if row["racs_degradation_induced_cascade_started"]),
+                len(level_rows),
+            ),
+            "cascade_prevented_count": sum(
+                1 for row in level_rows
+                if row["baseline_degradation_induced_cascade_started"]
+                and not row["racs_degradation_induced_cascade_started"]
+            ),
+            "cascade_delayed_count": sum(
+                1 for row in level_rows
+                if row.get("cascade_start_delta") is not None
+                and row["cascade_start_delta"] > 0
+            ),
+            "cascade_earlier_count": sum(
+                1 for row in level_rows
+                if row.get("cascade_start_delta") is not None
+                and row["cascade_start_delta"] < 0
+            ),
+            "baseline_cascade_start_min": _descriptive_stats(
+                row.get("baseline_degradation_induced_cascade_start_step")
+                for row in level_rows
+            )["min"],
+            "baseline_cascade_start_median": _descriptive_stats(
+                row.get("baseline_degradation_induced_cascade_start_step")
+                for row in level_rows
+            )["median"],
+            "baseline_cascade_start_max": _descriptive_stats(
+                row.get("baseline_degradation_induced_cascade_start_step")
+                for row in level_rows
+            )["max"],
+            "median_intervention_to_baseline_propagation_margin": _descriptive_stats(
+                row.get("intervention_to_baseline_propagation_margin")
+                for row in level_rows
+            )["median"],
+            "queue_auc_delta_mean": _descriptive_stats(
+                row["queue_auc_delta"] for row in level_rows
+            )["mean"],
+            "latency_delta_mean": _descriptive_stats(
+                row["latency_delta"] for row in level_rows
+            )["mean"],
+            "positive_excess_missed_processing_delta_mean": _descriptive_stats(
+                row["positive_excess_missed_processing_delta"] for row in level_rows
+            )["mean"],
+            "net_missed_workstation_processing_deficit_delta_mean": _descriptive_stats(
+                row["net_missed_workstation_processing_deficit_delta"]
+                for row in level_rows
+            )["mean"],
+            "downstream_completion_deficit_delta_mean": _descriptive_stats(
+                row["downstream_completion_deficit_delta"] for row in level_rows
+            )["mean"],
+            "before_cascade_net_deficit_delta_mean": _descriptive_stats(
+                row["net_missed_workstation_processing_deficit_delta"]
+                for row in before
+            )["mean"],
+            "at_or_after_cascade_net_deficit_delta_mean": _descriptive_stats(
+                row["net_missed_workstation_processing_deficit_delta"]
+                for row in at_or_after
+            )["mean"],
+        })
+    return rows
+
+
 def build_manifest(
     config: RacsV1ExperimentConfig,
     experiment_id: str,
@@ -374,6 +561,25 @@ def build_manifest(
         "scenario": _json_ready(asdict(config.scenario)),
         "seeds": list(config.seeds),
         "trial_count": config.trial_count,
+        "workstation_wip_levels": list(config.workstation_wip_levels),
+        "arrival_mode": {
+            "mode": config.scenario.arrival_mode,
+            "tasks_per_step": config.scenario.tasks_per_step,
+            "max_arrivals_per_step": config.scenario.max_arrivals_per_step,
+            "fixed_total_tasks_per_site": {
+                site_id: int(
+                    config.scenario.steps
+                    * config.scenario.tasks_per_step
+                    * config.scenario.initial_site_demand.get(site_id, 1.0)
+                    + 0.5
+                )
+                for site_id in config.scenario.site_ids
+            },
+            "fixed_total_rule": (
+                "seeded_timing uses int(steps * tasks_per_step * demand_rate + 0.5) "
+                "tasks per site and varies only bounded arrival placement"
+            ),
+        },
         "condition_definitions": condition_definitions(),
         "racs_policy": {
             "intervention_risk_level": config.racs_intervention_risk_level.value,
@@ -409,15 +615,19 @@ def condition_definitions() -> dict[str, str]:
 def metric_definitions() -> dict[str, str]:
     return {
         "tasks_created": "Total SimTask objects created by the final simulation step.",
+        "arrival_sequence_hash": "SHA-256 hash of workload_arrivals_by_step. Paired healthy/baseline/RACS rows with the same seed and WIP should match.",
+        "workload_arrivals_by_step": "Pure exogenous task arrivals per simulation step, excluding fault shocks and non-RACS cascade-created tasks.",
         "tasks_completed": "Total tasks with COMPLETED status by the final simulation step. Higher is better.",
         "tasks_late": "Completed tasks whose completed_step is greater than deadline_step. Lower is better.",
         "tasks_failed": "Total tasks with FAILED status. The V1 simulator does not yet model timeout failure, so this is expected to remain zero unless failure semantics are added.",
+        "unfinished_tasks_at_end": "tasks_created - tasks_completed - tasks_failed at the final step. Lower is better.",
         "final_queue_length": "Queued task count at the final simulation step. Lower is better.",
         "peak_queue_length": "Maximum queued task count over simulation steps. Lower is better.",
         "queue_auc": "Sum of queued task count over simulation steps. Lower is better.",
         "average_completion_latency": "Mean completed_step - created_step for completed tasks, in simulation steps. Lower is better.",
         "robot_utilization_summary": "Mean, min, and max of per-robot busy_steps / elapsed_steps at the final step.",
         "completed_task_delta": "RACS completed tasks minus baseline completed tasks for the same seed. Higher is better.",
+        "tasks_completed_delta": "Alias for completed_task_delta. RACS completed tasks minus baseline completed tasks for the same seed. Higher is better.",
         "late_task_delta": "RACS late tasks minus baseline late tasks for the same seed. Lower is better.",
         "queue_auc_delta": "RACS queue_auc minus baseline queue_auc for the same seed. Lower is better.",
         "peak_queue_delta": "RACS peak_queue_length minus baseline peak_queue_length for the same seed. Lower is better.",
@@ -439,7 +649,10 @@ def metric_definitions() -> dict[str, str]:
         "degradation_induced_cascade_started": "True when cumulative_positive_excess_missed_processing_units is greater than zero.",
         "degradation_induced_cascade_start_step": "First step where positive_excess_missed_processing_units_by_step is positive.",
         "downstream_completion_deficit_vs_healthy": "healthy cumulative downstream completions minus condition cumulative downstream completions at the final step. Positive means the condition is behind healthy.",
+        "cascade_start_delta": "RACS degradation-induced cascade start step minus baseline start step for the same seed/WIP when both are defined. Positive means RACS delayed propagation.",
+        "intervention_to_baseline_propagation_margin": "Baseline degradation-induced cascade start step minus RACS intervention step. Positive means RACS intervened before the downstream propagation seen under baseline.",
         "workstation_starvation_steps": "Steps where the enabled workstation had integer processing entitlement but insufficient delivered input after startup eligibility. Lower is better.",
+        "workstation_starvation_step_sequence": "Exact simulation steps where raw workstation starvation occurred.",
         "workstation_buffer_auc": "Sum of workstation input-buffer units over simulation steps. Interpretation is scenario-dependent.",
         "post_degradation_starvation_started": "Raw indicator that workstation starvation occurred at or after degradation_start_step. This is timing-based and not causal attribution by itself.",
         "post_degradation_starvation_start_step": "First raw workstation starvation step at or after degradation_start_step, else None.",
@@ -453,11 +666,13 @@ def metric_directions() -> dict[str, str]:
         "tasks_completed": "higher_better",
         "tasks_late": "lower_better",
         "tasks_failed": "lower_better",
+        "unfinished_tasks_at_end": "lower_better",
         "final_queue_length": "lower_better",
         "peak_queue_length": "lower_better",
         "queue_auc": "lower_better",
         "average_completion_latency": "lower_better",
         "completed_task_delta": "higher_better",
+        "tasks_completed_delta": "higher_better",
         "late_task_delta": "lower_better",
         "queue_auc_delta": "lower_better",
         "peak_queue_delta": "lower_better",
@@ -486,6 +701,8 @@ def metric_directions() -> dict[str, str]:
         "positive_excess_missed_processing_delta": "lower_better",
         "net_missed_workstation_processing_deficit_delta": "lower_better",
         "downstream_completion_deficit_delta": "lower_better",
+        "cascade_start_delta": "higher_better",
+        "intervention_to_baseline_propagation_margin": "higher_better",
     }
 
 
@@ -518,6 +735,18 @@ def _summarize_trial(
             step["sites"][site_id]["missed_workstation_processing_units_this_step"]
             for site_id in site_ids
         )
+        for step in metrics
+    ]
+    starvation_step_sequence = [
+        step["step"]
+        for step in metrics
+        if any(
+            step["sites"][site_id]["workstation_starved_this_step"]
+            for site_id in site_ids
+        )
+    ]
+    workload_arrivals_by_step = [
+        sum(step["sites"][site_id]["workload_arrivals_step"] for site_id in site_ids)
         for step in metrics
     ]
     downstream_completed_cumulative = []
@@ -582,7 +811,17 @@ def _summarize_trial(
 
     return {
         "seed": seed,
+        "workstation_wip_level": scenario_config.workstation_buffer_at_degradation_start.get(
+            site_ids[0],
+            0,
+        ) if len(site_ids) == 1 else _json_ready(
+            dict(scenario_config.workstation_buffer_at_degradation_start)
+        ),
         "condition": condition,
+        "arrival_mode": scenario_config.arrival_mode,
+        "max_arrivals_per_step": scenario_config.max_arrivals_per_step,
+        "arrival_sequence_hash": _arrival_sequence_hash(workload_arrivals_by_step),
+        "workload_arrivals_by_step": workload_arrivals_by_step,
         "degrading_robot_id": final["degrading_robot_id"],
         "degradation_start_step": final["degradation_start_step"],
         "counterfactual_failure_step": counterfactual_failure_step,
@@ -590,6 +829,7 @@ def _summarize_trial(
         "tasks_completed": total_completed,
         "tasks_late": total_late,
         "tasks_failed": total_failed,
+        "unfinished_tasks_at_end": total_created - total_completed - total_failed,
         "final_queue_length": queue_by_step[-1],
         "peak_queue_length": max(queue_by_step),
         "queue_auc": sum(queue_by_step),
@@ -615,6 +855,7 @@ def _summarize_trial(
         "downstream_completion_deficit_vs_healthy_by_step": [],
         "downstream_completion_deficit_vs_healthy": 0,
         "workstation_starvation_steps": total_starvation_steps,
+        "workstation_starvation_step_sequence": starvation_step_sequence,
         "workstation_buffer_auc": sum(workstation_buffer_by_step),
         "post_degradation_starvation_started": post_degradation_starvation_started,
         "post_degradation_starvation_start_step": (
@@ -703,6 +944,58 @@ def _optional_delta(
     if left is None or right is None:
         return None
     return round(left - right, 6)
+
+
+def _is_before(left: Optional[int], right: Optional[int]) -> bool:
+    return left is not None and right is not None and left < right
+
+
+def _outcome_categories(
+    baseline: dict[str, Any],
+    racs: dict[str, Any],
+) -> list[str]:
+    categories = []
+    baseline_start = baseline.get("degradation_induced_cascade_start_step")
+    racs_start = racs.get("degradation_induced_cascade_start_step")
+    intervention = racs.get("intervention_step")
+
+    if baseline_start is None:
+        categories.append("no degradation-induced cascade under baseline")
+    if intervention is not None and baseline_start is not None:
+        if intervention < baseline_start:
+            categories.append("RACS intervention before propagation")
+        else:
+            categories.append("RACS intervention after propagation")
+    if baseline_start is not None and racs_start is None:
+        categories.append("RACS prevents degradation-induced cascade")
+    if baseline_start is not None and racs_start is not None:
+        if racs_start > baseline_start:
+            categories.append("RACS delays cascade")
+        elif racs_start < baseline_start:
+            categories.append("RACS worsens downstream timing")
+
+    positive_delta = (
+        racs.get("cumulative_positive_excess_missed_processing_units", 0)
+        - baseline.get("cumulative_positive_excess_missed_processing_units", 0)
+    )
+    if positive_delta < 0:
+        categories.append("RACS reduces excess downstream service loss")
+    elif positive_delta == 0:
+        categories.append("RACS neutral downstream")
+    else:
+        categories.append("RACS worsens downstream")
+    return categories
+
+
+def _arrival_sequence_hash(arrivals_by_step: list[int]) -> str:
+    payload = json.dumps(arrivals_by_step, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _fraction(numerator: int, denominator: int) -> Optional[float]:
+    if denominator == 0:
+        return None
+    return round(numerator / denominator, 6)
 
 
 def _descriptive_stats(values: Iterable[Any]) -> dict[str, Optional[float]]:
@@ -820,7 +1113,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
-    config = default_experiment_config(
+    config = robustness_experiment_config(
         trial_count=args.seeds,
         first_seed=args.first_seed,
     )

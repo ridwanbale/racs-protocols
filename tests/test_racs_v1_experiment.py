@@ -17,6 +17,7 @@ from simulations.experiments.racs_v1 import (
     build_summary,
     default_experiment_config,
     derive_paired_metrics,
+    robustness_experiment_config,
     run_experiment,
     run_paired_trial,
     _with_paired_downstream_attribution,
@@ -125,8 +126,10 @@ def test_experiment_writes_expected_machine_readable_outputs() -> None:
     assert sorted(path.name for path in output_dir.iterdir()) == [
         "manifest.json",
         "paired_comparison.csv",
+        "paired_results.csv",
         "summary.json",
         "trials.csv",
+        "wip_summary.csv",
     ]
     with (output_dir / "trials.csv").open(newline="", encoding="utf-8") as handle:
         trial_rows = list(csv.DictReader(handle))
@@ -139,6 +142,83 @@ def test_experiment_writes_expected_machine_readable_outputs() -> None:
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["racs_policy"]["attribution"] == "suspect-robot anomaly attribution"
     assert result["output_dir"].endswith("outputs")
+
+
+def test_robustness_config_runs_all_wip_levels_and_pairs_arrivals() -> None:
+    config = robustness_experiment_config(trial_count=1, first_seed=1000)
+
+    result = run_experiment(
+        config,
+        workspace_output_root("robustness_wip"),
+        experiment_id="robustness",
+    )
+
+    assert len(result["trials"]) == 12
+    assert len(result["paired"]) == 4
+    assert {row["workstation_wip_level"] for row in result["trials"]} == {0, 1, 2, 4}
+    for wip in [0, 1, 2, 4]:
+        rows = [
+            row for row in result["trials"]
+            if row["workstation_wip_level"] == wip
+        ]
+        assert len({row["arrival_sequence_hash"] for row in rows}) == 1
+        assert len({tuple(row["workload_arrivals_by_step"]) for row in rows}) == 1
+        assert len({row["preconditioned_workstation_units"] for row in rows}) == 1
+
+
+def test_seeded_arrival_hash_differs_across_robustness_seeds() -> None:
+    config = robustness_experiment_config(trial_count=2, first_seed=1000)
+    rows = [
+        row for row in run_paired_trial(config, 1000, workstation_wip_level=0)
+        if row["condition"] == CONDITION_HEALTHY
+    ] + [
+        row for row in run_paired_trial(config, 1001, workstation_wip_level=0)
+        if row["condition"] == CONDITION_HEALTHY
+    ]
+
+    assert rows[0]["arrival_sequence_hash"] != rows[1]["arrival_sequence_hash"]
+    assert rows[0]["tasks_created"] == rows[1]["tasks_created"] == 51
+    assert max(rows[0]["workload_arrivals_by_step"]) <= 2
+    assert max(rows[1]["workload_arrivals_by_step"]) <= 2
+
+
+def test_paired_conditions_share_identical_seeded_arrival_sequence() -> None:
+    config = robustness_experiment_config(trial_count=1, first_seed=1002)
+
+    rows = {
+        row["condition"]: row
+        for row in run_paired_trial(config, 1002, workstation_wip_level=2)
+    }
+
+    assert rows[CONDITION_HEALTHY]["arrival_sequence_hash"] == rows[CONDITION_BASELINE]["arrival_sequence_hash"]
+    assert rows[CONDITION_BASELINE]["arrival_sequence_hash"] == rows[CONDITION_RACS]["arrival_sequence_hash"]
+    assert rows[CONDITION_HEALTHY]["workload_arrivals_by_step"] == rows[CONDITION_BASELINE]["workload_arrivals_by_step"]
+    assert rows[CONDITION_BASELINE]["workload_arrivals_by_step"] == rows[CONDITION_RACS]["workload_arrivals_by_step"]
+    assert rows[CONDITION_BASELINE]["degrading_robot_id"] == rows[CONDITION_RACS]["degrading_robot_id"]
+    assert rows[CONDITION_BASELINE]["counterfactual_failure_step"] == rows[CONDITION_RACS]["counterfactual_failure_step"]
+
+
+def test_wip_summary_retains_unfavorable_outcomes() -> None:
+    config = robustness_experiment_config(trial_count=2, first_seed=1000)
+
+    result = run_experiment(
+        config,
+        workspace_output_root("unfavorable_robustness"),
+        experiment_id="robustness",
+    )
+
+    assert len(result["wip_summary"]) == 4
+    paired = result["paired"]
+    assert len(paired) == 8
+    assert {
+        (row["seed"], row["workstation_wip_level"])
+        for row in paired
+    } == {
+        (seed, wip)
+        for seed in [1000, 1001]
+        for wip in [0, 1, 2, 4]
+    }
+    assert all("outcome_categories" in row for row in paired)
 
 
 def test_racs_can_have_no_intervention() -> None:

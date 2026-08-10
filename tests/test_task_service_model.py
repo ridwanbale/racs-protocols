@@ -96,6 +96,81 @@ def test_negative_tasks_per_step_is_rejected() -> None:
         single_site_config(tasks_per_step=-0.1)
 
 
+def test_seeded_arrival_mode_is_repeatable_for_same_seed() -> None:
+    config = single_site_config(
+        steps=20,
+        tasks_per_step=0.85,
+        arrival_mode="seeded_timing",
+        max_arrivals_per_step=2,
+    )
+
+    first = WarehouseSimulation(config=config, with_racs=False).run()
+    second = WarehouseSimulation(config=config, with_racs=False).run()
+
+    assert [m["sites"]["SITE_A"]["workload_arrivals_step"] for m in first] == [
+        m["sites"]["SITE_A"]["workload_arrivals_step"] for m in second
+    ]
+
+
+def test_seeded_arrival_mode_varies_timing_for_different_seeds() -> None:
+    first_config = single_site_config(
+        steps=20,
+        seed=1000,
+        tasks_per_step=0.85,
+        arrival_mode="seeded_timing",
+        max_arrivals_per_step=2,
+    )
+    second_config = single_site_config(
+        steps=20,
+        seed=1001,
+        tasks_per_step=0.85,
+        arrival_mode="seeded_timing",
+        max_arrivals_per_step=2,
+    )
+
+    first = WarehouseSimulation(config=first_config, with_racs=False).run()
+    second = WarehouseSimulation(config=second_config, with_racs=False).run()
+
+    assert [m["sites"]["SITE_A"]["workload_arrivals_step"] for m in first] != [
+        m["sites"]["SITE_A"]["workload_arrivals_step"] for m in second
+    ]
+
+
+def test_seeded_arrival_mode_fixes_total_work_and_respects_burst_bound() -> None:
+    config = single_site_config(
+        steps=60,
+        tasks_per_step=0.85,
+        arrival_mode="seeded_timing",
+        max_arrivals_per_step=2,
+    )
+
+    metrics = WarehouseSimulation(config=config, with_racs=False).run()
+    arrivals = [m["sites"]["SITE_A"]["workload_arrivals_step"] for m in metrics]
+
+    assert sum(arrivals) == 51
+    assert max(arrivals) <= 2
+
+
+def test_deterministic_arrival_mode_remains_unchanged() -> None:
+    config = single_site_config(steps=4, tasks_per_step=0.85)
+
+    metrics = WarehouseSimulation(config=config, with_racs=False).run()
+
+    assert [m["sites"]["SITE_A"]["workload_arrivals_step"] for m in metrics] == [0, 1, 1, 1]
+
+
+def test_seeded_arrival_mode_rejects_insufficient_burst_capacity() -> None:
+    config = single_site_config(
+        steps=5,
+        tasks_per_step=3,
+        arrival_mode="seeded_timing",
+        max_arrivals_per_step=1,
+    )
+
+    with pytest.raises(ValueError, match="max_arrivals_per_step"):
+        WarehouseSimulation(config=config, with_racs=False)
+
+
 def test_tasks_are_assigned_to_available_robots() -> None:
     config = single_site_config(steps=1, robot_count=2, tasks_per_step=2)
     sim = WarehouseSimulation(config=config, with_racs=False)
