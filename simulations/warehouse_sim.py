@@ -43,6 +43,7 @@ class SimulationScenarioConfig:
     workstation_enabled: bool = False
     workstation_processing_rate: float = 1.0
     initial_workstation_buffer: Mapping[str, int] = field(default_factory=dict)
+    workstation_buffer_at_degradation_start: Mapping[str, int] = field(default_factory=dict)
     degradation_enabled: bool = False
     degradation_robot_id: Optional[str] = None
     degradation_site: Optional[str] = None
@@ -125,6 +126,19 @@ class SimulationScenarioConfig:
                 raise ValueError("initial_workstation_buffer keys must exist in site_ids")
             if buffer_count < 0:
                 raise ValueError("initial_workstation_buffer values cannot be negative")
+        if self.workstation_buffer_at_degradation_start and not self.workstation_enabled:
+            raise ValueError(
+                "workstation_buffer_at_degradation_start requires workstation_enabled"
+            )
+        for site_id, buffer_count in self.workstation_buffer_at_degradation_start.items():
+            if site_id not in valid_sites:
+                raise ValueError(
+                    "workstation_buffer_at_degradation_start keys must exist in site_ids"
+                )
+            if buffer_count < 0:
+                raise ValueError(
+                    "workstation_buffer_at_degradation_start values cannot be negative"
+                )
 
 
 class TaskStatus(Enum):
@@ -251,6 +265,13 @@ class SimSite:
     workstation_starvation_by_step: List[bool] = field(default_factory=list)
     workstation_buffer_by_step: List[int] = field(default_factory=list)
     downstream_completed_task_ids: List[str] = field(default_factory=list)
+    initial_workstation_units: int = 0
+    preconditioned_workstation_units: int = 0
+    transport_delivered_to_workstation: int = 0
+    downstream_initial_completed: int = 0
+    downstream_preconditioned_completed: int = 0
+    downstream_transport_completed: int = 0
+    workstation_preconditioned_step: Optional[int] = None
     _workstation_starvation_eligible: bool = False
 
     def __post_init__(self) -> None:
@@ -362,6 +383,16 @@ class SimSite:
     def seed_workstation_buffer(self, count: int) -> None:
         for index in range(count):
             self.workstation_input_buffer.append(f"{self.site_id}_INITIAL_W{index:06d}")
+        self.initial_workstation_units += count
+        if count > 0:
+            self._workstation_starvation_eligible = True
+
+    def precondition_workstation_buffer(self, count: int, step: int) -> None:
+        self.workstation_input_buffer = [
+            f"{self.site_id}_PRECONDITIONED_W{index:06d}" for index in range(count)
+        ]
+        self.preconditioned_workstation_units = count
+        self.workstation_preconditioned_step = step
         if count > 0:
             self._workstation_starvation_eligible = True
 
@@ -370,6 +401,7 @@ class SimSite:
             return
         for task in completed_tasks:
             self.workstation_input_buffer.append(task.task_id)
+        self.transport_delivered_to_workstation += len(completed_tasks)
         if completed_tasks:
             self._workstation_starvation_eligible = True
 
@@ -377,8 +409,17 @@ class SimSite:
         if not self.workstation_enabled:
             return {
                 "workstation_input_buffer": 0,
+                "workstation_buffer_before_processing": 0,
+                "workstation_processing_entitlement": 0,
                 "workstation_completed_this_step": 0,
                 "downstream_tasks_completed": 0,
+                "initial_workstation_units": 0,
+                "preconditioned_workstation_units": 0,
+                "transport_delivered_to_workstation": 0,
+                "downstream_initial_completed": 0,
+                "downstream_preconditioned_completed": 0,
+                "downstream_transport_completed": 0,
+                "workstation_preconditioned_step": None,
                 "workstation_starved_this_step": False,
                 "workstation_starvation_steps": 0,
             }
@@ -392,6 +433,12 @@ class SimSite:
         for _ in range(processed):
             task_id = self.workstation_input_buffer.pop(0)
             self.downstream_completed_task_ids.append(task_id)
+            if "_INITIAL_W" in task_id:
+                self.downstream_initial_completed += 1
+            elif "_PRECONDITIONED_W" in task_id:
+                self.downstream_preconditioned_completed += 1
+            else:
+                self.downstream_transport_completed += 1
         self.workstation_completed_count += processed
 
         ongoing_workload = len(self.tasks) > self.workstation_completed_count
@@ -406,8 +453,17 @@ class SimSite:
         self.workstation_buffer_by_step.append(len(self.workstation_input_buffer))
         return {
             "workstation_input_buffer": len(self.workstation_input_buffer),
+            "workstation_buffer_before_processing": buffer_before,
+            "workstation_processing_entitlement": entitlement,
             "workstation_completed_this_step": processed,
             "downstream_tasks_completed": self.workstation_completed_count,
+            "initial_workstation_units": self.initial_workstation_units,
+            "preconditioned_workstation_units": self.preconditioned_workstation_units,
+            "transport_delivered_to_workstation": self.transport_delivered_to_workstation,
+            "downstream_initial_completed": self.downstream_initial_completed,
+            "downstream_preconditioned_completed": self.downstream_preconditioned_completed,
+            "downstream_transport_completed": self.downstream_transport_completed,
+            "workstation_preconditioned_step": self.workstation_preconditioned_step,
             "workstation_starved_this_step": starved,
             "workstation_starvation_steps": self.workstation_starvation_steps,
         }
@@ -638,6 +694,13 @@ class SimSite:
             "workstation_input_buffer": len(self.workstation_input_buffer),
             "workstation_completed_this_step": 0,
             "downstream_tasks_completed": self.workstation_completed_count,
+            "initial_workstation_units": self.initial_workstation_units,
+            "preconditioned_workstation_units": self.preconditioned_workstation_units,
+            "transport_delivered_to_workstation": self.transport_delivered_to_workstation,
+            "downstream_initial_completed": self.downstream_initial_completed,
+            "downstream_preconditioned_completed": self.downstream_preconditioned_completed,
+            "downstream_transport_completed": self.downstream_transport_completed,
+            "workstation_preconditioned_step": self.workstation_preconditioned_step,
             "workstation_starved_this_step": False,
             "workstation_starvation_steps": self.workstation_starvation_steps,
         }
@@ -882,6 +945,17 @@ class WarehouseSimulation:
 
         for step in range(config.steps):
             simulated_time = step * self._step_duration_s
+            preconditioning_by_site: Dict[str, dict] = {}
+            if config.workstation_enabled and step == config.degradation_start_step:
+                for sid, target_count in config.workstation_buffer_at_degradation_start.items():
+                    site = self._sites[sid]
+                    previous_count = len(site.workstation_input_buffer)
+                    site.precondition_workstation_buffer(target_count, step=step)
+                    preconditioning_by_site[sid] = {
+                        "workstation_preconditioned_this_step": True,
+                        "workstation_buffer_before_preconditioning": previous_count,
+                        "workstation_buffer_after_preconditioning": target_count,
+                    }
 
             for site in self._sites.values():
                 for robot in site.robots:
@@ -1038,6 +1112,11 @@ class WarehouseSimulation:
                 throughput = telemetry.throughput_rate
                 task_metrics = site.task_metrics(completed_this_step, step=step)
                 task_metrics.update(workstation_metrics)
+                task_metrics.update(preconditioning_by_site.get(sid, {
+                    "workstation_preconditioned_this_step": False,
+                    "workstation_buffer_before_preconditioning": None,
+                    "workstation_buffer_after_preconditioning": None,
+                }))
                 cascade_started = (
                     config.workstation_enabled
                     and config.degradation_enabled

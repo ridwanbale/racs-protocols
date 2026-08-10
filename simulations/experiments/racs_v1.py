@@ -246,6 +246,10 @@ def build_summary(
         "queue_auc",
         "average_completion_latency",
         "downstream_tasks_completed",
+        "preconditioned_workstation_units",
+        "transport_delivered_to_workstation",
+        "downstream_preconditioned_completed",
+        "downstream_transport_completed",
         "workstation_starvation_steps",
         "workstation_buffer_auc",
         "cascade_starvation_steps",
@@ -362,6 +366,10 @@ def metric_definitions() -> dict[str, str]:
         "detection_lead_time": "counterfactual_failure_step - risk_detection_step when both are defined; higher positive values mean earlier detection.",
         "intervention_lead_time": "counterfactual_failure_step - intervention_step when both are defined; higher positive values mean earlier intervention.",
         "downstream_tasks_completed": "Total units processed by the downstream workstation. Higher is better.",
+        "preconditioned_workstation_units": "Units staged into the workstation buffer at degradation_start_step by scenario preconditioning.",
+        "transport_delivered_to_workstation": "Transport-completed AMR tasks deposited into the workstation input buffer during the run.",
+        "downstream_preconditioned_completed": "Preconditioned staged units processed by the workstation.",
+        "downstream_transport_completed": "AMR-delivered units processed by the workstation.",
         "workstation_starvation_steps": "Steps where the enabled workstation had integer processing entitlement but insufficient delivered input after startup eligibility. Lower is better.",
         "workstation_buffer_auc": "Sum of workstation input-buffer units over simulation steps. Interpretation is scenario-dependent.",
         "cascade_started": "True when downstream workstation starvation occurs at or after degradation onset.",
@@ -389,6 +397,10 @@ def metric_directions() -> dict[str, str]:
         "racs_throughput_degradation": "lower_better",
         "throughput_degradation_delta": "lower_better",
         "downstream_tasks_completed": "higher_better",
+        "preconditioned_workstation_units": "context_dependent",
+        "transport_delivered_to_workstation": "higher_better",
+        "downstream_preconditioned_completed": "context_dependent",
+        "downstream_transport_completed": "higher_better",
         "workstation_starvation_steps": "lower_better",
         "workstation_buffer_auc": "context_dependent",
         "cascade_starvation_steps": "lower_better",
@@ -436,6 +448,18 @@ def _summarize_trial(
     total_downstream_completed = sum(
         site["downstream_tasks_completed"] for site in final_site_metrics
     )
+    total_preconditioned_units = sum(
+        site["preconditioned_workstation_units"] for site in final_site_metrics
+    )
+    total_transport_delivered = sum(
+        site["transport_delivered_to_workstation"] for site in final_site_metrics
+    )
+    total_downstream_preconditioned = sum(
+        site["downstream_preconditioned_completed"] for site in final_site_metrics
+    )
+    total_downstream_transport = sum(
+        site["downstream_transport_completed"] for site in final_site_metrics
+    )
     total_starvation_steps = sum(
         site["workstation_starvation_steps"] for site in final_site_metrics
     )
@@ -481,6 +505,10 @@ def _summarize_trial(
         "workstation_buffer_by_step": workstation_buffer_by_step,
         "workstation_completed_by_step": workstation_completed_by_step,
         "downstream_tasks_completed": total_downstream_completed,
+        "preconditioned_workstation_units": total_preconditioned_units,
+        "transport_delivered_to_workstation": total_transport_delivered,
+        "downstream_preconditioned_completed": total_downstream_preconditioned,
+        "downstream_transport_completed": total_downstream_transport,
         "workstation_starvation_steps": total_starvation_steps,
         "workstation_buffer_auc": sum(workstation_buffer_by_step),
         "cascade_started": cascade_started,
