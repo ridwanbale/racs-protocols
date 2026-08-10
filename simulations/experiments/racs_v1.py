@@ -204,6 +204,22 @@ def derive_paired_metrics(trials: Iterable[dict[str, Any]]) -> dict[str, Any]:
             racs["average_completion_latency"]
             - baseline["average_completion_latency"]
         ),
+        "downstream_completed_delta": (
+            racs.get("downstream_tasks_completed", 0)
+            - baseline.get("downstream_tasks_completed", 0)
+        ),
+        "workstation_starvation_delta": (
+            racs.get("workstation_starvation_steps", 0)
+            - baseline.get("workstation_starvation_steps", 0)
+        ),
+        "workstation_buffer_auc_delta": (
+            racs.get("workstation_buffer_auc", 0)
+            - baseline.get("workstation_buffer_auc", 0)
+        ),
+        "cascade_starvation_delta": (
+            racs.get("cascade_starvation_steps", 0)
+            - baseline.get("cascade_starvation_steps", 0)
+        ),
         "baseline_throughput_degradation": _throughput_degradation(
             healthy_completed, baseline["tasks_completed"]
         ),
@@ -229,6 +245,11 @@ def build_summary(
         "peak_queue_length",
         "queue_auc",
         "average_completion_latency",
+        "downstream_tasks_completed",
+        "workstation_starvation_steps",
+        "workstation_buffer_auc",
+        "cascade_starvation_steps",
+        "affected_resource_count",
     ]
     delta_metrics = [
         "completed_task_delta",
@@ -236,6 +257,10 @@ def build_summary(
         "queue_auc_delta",
         "peak_queue_delta",
         "latency_delta",
+        "downstream_completed_delta",
+        "workstation_starvation_delta",
+        "workstation_buffer_auc_delta",
+        "cascade_starvation_delta",
         "throughput_degradation_delta",
     ]
     degradation_metrics = [
@@ -246,13 +271,13 @@ def build_summary(
     for condition in [CONDITION_HEALTHY, CONDITION_BASELINE, CONDITION_RACS]:
         rows = [row for row in trial_rows if row["condition"] == condition]
         by_condition[condition] = {
-            metric: _descriptive_stats([row[metric] for row in rows])
+            metric: _descriptive_stats([row.get(metric, 0) for row in rows])
             for metric in condition_metrics
         }
 
     deltas = {
         metric: {
-            **_descriptive_stats([row[metric] for row in paired_rows]),
+            **_descriptive_stats([row.get(metric, 0) for row in paired_rows]),
             **_better_equal_worse(metric, paired_rows),
         }
         for metric in delta_metrics
@@ -311,7 +336,7 @@ def condition_definitions() -> dict[str, str]:
         ),
         CONDITION_RACS: (
             "Same progressive degradation, workload, seed, and trajectory as baseline; "
-            "RACS predictive quarantine enabled with the same hard-failure fallback mechanics."
+            "RACS predictive drain/cordon enabled with the same hard-failure fallback mechanics."
         ),
     }
 
@@ -336,6 +361,13 @@ def metric_definitions() -> dict[str, str]:
         "throughput_degradation": "(healthy.completed - condition.completed) / healthy.completed; None if healthy.completed is zero. Lower is better.",
         "detection_lead_time": "counterfactual_failure_step - risk_detection_step when both are defined; higher positive values mean earlier detection.",
         "intervention_lead_time": "counterfactual_failure_step - intervention_step when both are defined; higher positive values mean earlier intervention.",
+        "downstream_tasks_completed": "Total units processed by the downstream workstation. Higher is better.",
+        "workstation_starvation_steps": "Steps where the enabled workstation had integer processing entitlement but insufficient delivered input after startup eligibility. Lower is better.",
+        "workstation_buffer_auc": "Sum of workstation input-buffer units over simulation steps. Interpretation is scenario-dependent.",
+        "cascade_started": "True when downstream workstation starvation occurs at or after degradation onset.",
+        "cascade_start_step": "First qualifying downstream starvation step at or after degradation onset, else None.",
+        "cascade_starvation_steps": "Count of qualifying downstream starvation steps at or after degradation onset. Steps may be non-contiguous. Lower is better.",
+        "affected_resource_count": "1 when impact remains transport-local; 2 once workstation starvation occurs.",
     }
 
 
@@ -356,6 +388,15 @@ def metric_directions() -> dict[str, str]:
         "baseline_throughput_degradation": "lower_better",
         "racs_throughput_degradation": "lower_better",
         "throughput_degradation_delta": "lower_better",
+        "downstream_tasks_completed": "higher_better",
+        "workstation_starvation_steps": "lower_better",
+        "workstation_buffer_auc": "context_dependent",
+        "cascade_starvation_steps": "lower_better",
+        "affected_resource_count": "lower_better",
+        "downstream_completed_delta": "higher_better",
+        "workstation_starvation_delta": "lower_better",
+        "workstation_buffer_auc_delta": "context_dependent",
+        "cascade_starvation_delta": "lower_better",
     }
 
 
@@ -375,6 +416,14 @@ def _summarize_trial(
         sum(step["sites"][site_id]["tasks_completed_step"] for site_id in site_ids)
         for step in metrics
     ]
+    workstation_buffer_by_step = [
+        sum(step["sites"][site_id]["workstation_input_buffer"] for site_id in site_ids)
+        for step in metrics
+    ]
+    workstation_completed_by_step = [
+        sum(step["sites"][site_id]["workstation_completed_this_step"] for site_id in site_ids)
+        for step in metrics
+    ]
     final_site_metrics = [final["sites"][site_id] for site_id in site_ids]
     total_created = sum(site["tasks_created"] for site in final_site_metrics)
     total_completed = sum(site["tasks_completed"] for site in final_site_metrics)
@@ -384,6 +433,18 @@ def _summarize_trial(
     total_predictive_reassigned = sum(
         site["predictive_tasks_reassigned"] for site in final_site_metrics
     )
+    total_downstream_completed = sum(
+        site["downstream_tasks_completed"] for site in final_site_metrics
+    )
+    total_starvation_steps = sum(
+        site["workstation_starvation_steps"] for site in final_site_metrics
+    )
+    cascade_start_steps = [
+        site["cascade_start_step"]
+        for site in final_site_metrics
+        if site["cascade_start_step"] is not None
+    ]
+    cascade_started = any(site["cascade_started"] for site in final_site_metrics)
     avg_latency = _weighted_average(
         [
             (site["avg_completion_latency"], site["tasks_completed"])
@@ -417,6 +478,19 @@ def _summarize_trial(
         "average_completion_latency": round(avg_latency, 3),
         "completed_tasks_by_step": completed_by_step,
         "queue_length_by_step": queue_by_step,
+        "workstation_buffer_by_step": workstation_buffer_by_step,
+        "workstation_completed_by_step": workstation_completed_by_step,
+        "downstream_tasks_completed": total_downstream_completed,
+        "workstation_starvation_steps": total_starvation_steps,
+        "workstation_buffer_auc": sum(workstation_buffer_by_step),
+        "cascade_started": cascade_started,
+        "cascade_start_step": min(cascade_start_steps) if cascade_start_steps else None,
+        "cascade_starvation_steps": sum(
+            site["cascade_starvation_steps"] for site in final_site_metrics
+        ),
+        "affected_resource_count": max(
+            site["affected_resource_count"] for site in final_site_metrics
+        ),
         "robot_utilization_summary": _utilization_summary(per_robot_utilization.values()),
         "per_robot_completed": per_robot_completed,
         "per_robot_utilization": per_robot_utilization,
@@ -510,7 +584,10 @@ def _descriptive_stats(values: Iterable[Any]) -> dict[str, Optional[float]]:
 
 def _better_equal_worse(metric: str, rows: list[dict[str, Any]]) -> dict[str, int]:
     direction = metric_directions()[metric]
-    values = [row[metric] for row in rows if row[metric] is not None]
+    values = [row.get(metric, 0) for row in rows if row.get(metric, 0) is not None]
+    if direction == "context_dependent":
+        equal = sum(1 for value in values if value == 0)
+        return {"racs_better_count": 0, "equal_count": equal, "racs_worse_count": 0}
     if direction == "higher_better":
         better = sum(1 for value in values if value > 0)
         worse = sum(1 for value in values if value < 0)

@@ -40,6 +40,9 @@ class SimulationScenarioConfig:
     tasks_per_step: float = 1.0
     base_service_steps: int = 3
     task_deadline_steps: int = 10
+    workstation_enabled: bool = False
+    workstation_processing_rate: float = 1.0
+    initial_workstation_buffer: Mapping[str, int] = field(default_factory=dict)
     degradation_enabled: bool = False
     degradation_robot_id: Optional[str] = None
     degradation_site: Optional[str] = None
@@ -80,6 +83,8 @@ class SimulationScenarioConfig:
             raise ValueError("base_service_steps must be greater than 0")
         if self.task_deadline_steps <= 0:
             raise ValueError("task_deadline_steps must be greater than 0")
+        if self.workstation_processing_rate < 0:
+            raise ValueError("workstation_processing_rate must be greater than or equal to 0")
         if self.degradation_start_step < 0 or self.degradation_start_step >= self.steps:
             raise ValueError("degradation_start_step must satisfy 0 <= degradation_start_step < steps")
         if self.degradation_rate_per_step < 0:
@@ -115,6 +120,11 @@ class SimulationScenarioConfig:
                 raise ValueError("initial_site_demand keys must exist in site_ids")
             if demand < 0:
                 raise ValueError("initial_site_demand values cannot be negative")
+        for site_id, buffer_count in self.initial_workstation_buffer.items():
+            if site_id not in valid_sites:
+                raise ValueError("initial_workstation_buffer keys must exist in site_ids")
+            if buffer_count < 0:
+                raise ValueError("initial_workstation_buffer values cannot be negative")
 
 
 class TaskStatus(Enum):
@@ -232,6 +242,16 @@ class SimSite:
     _next_task_index: int = 0
     _last_step: int = 0
     _arrival_credit: float = 0.0
+    workstation_enabled: bool = False
+    workstation_processing_rate: float = 1.0
+    workstation_input_buffer: List[str] = field(default_factory=list)
+    workstation_processing_credit: float = 0.0
+    workstation_completed_count: int = 0
+    workstation_starvation_steps: int = 0
+    workstation_starvation_by_step: List[bool] = field(default_factory=list)
+    workstation_buffer_by_step: List[int] = field(default_factory=list)
+    downstream_completed_task_ids: List[str] = field(default_factory=list)
+    _workstation_starvation_eligible: bool = False
 
     def __post_init__(self) -> None:
         self.robots = [
@@ -338,6 +358,59 @@ class SimSite:
             created.append(task)
         self.queue_length = self.queued_task_count
         return created
+
+    def seed_workstation_buffer(self, count: int) -> None:
+        for index in range(count):
+            self.workstation_input_buffer.append(f"{self.site_id}_INITIAL_W{index:06d}")
+        if count > 0:
+            self._workstation_starvation_eligible = True
+
+    def deposit_workstation_deliveries(self, completed_tasks: List[SimTask]) -> None:
+        if not self.workstation_enabled:
+            return
+        for task in completed_tasks:
+            self.workstation_input_buffer.append(task.task_id)
+        if completed_tasks:
+            self._workstation_starvation_eligible = True
+
+    def process_workstation(self) -> dict:
+        if not self.workstation_enabled:
+            return {
+                "workstation_input_buffer": 0,
+                "workstation_completed_this_step": 0,
+                "downstream_tasks_completed": 0,
+                "workstation_starved_this_step": False,
+                "workstation_starvation_steps": 0,
+            }
+
+        self.workstation_processing_credit += self.workstation_processing_rate
+        entitlement = int(self.workstation_processing_credit + 1e-12)
+        self.workstation_processing_credit -= entitlement
+
+        buffer_before = len(self.workstation_input_buffer)
+        processed = min(entitlement, buffer_before)
+        for _ in range(processed):
+            task_id = self.workstation_input_buffer.pop(0)
+            self.downstream_completed_task_ids.append(task_id)
+        self.workstation_completed_count += processed
+
+        ongoing_workload = len(self.tasks) > self.workstation_completed_count
+        starved = (
+            self._workstation_starvation_eligible
+            and entitlement > processed
+            and ongoing_workload
+        )
+        if starved:
+            self.workstation_starvation_steps += 1
+        self.workstation_starvation_by_step.append(starved)
+        self.workstation_buffer_by_step.append(len(self.workstation_input_buffer))
+        return {
+            "workstation_input_buffer": len(self.workstation_input_buffer),
+            "workstation_completed_this_step": processed,
+            "downstream_tasks_completed": self.workstation_completed_count,
+            "workstation_starved_this_step": starved,
+            "workstation_starvation_steps": self.workstation_starvation_steps,
+        }
 
     def arrival_count_for_step(self, expected_arrivals: float) -> int:
         if expected_arrivals < 0:
@@ -562,6 +635,11 @@ class SimSite:
                 robot.robot_id: round(robot.busy_steps / elapsed_steps, 3)
                 for robot in self.robots
             },
+            "workstation_input_buffer": len(self.workstation_input_buffer),
+            "workstation_completed_this_step": 0,
+            "downstream_tasks_completed": self.workstation_completed_count,
+            "workstation_starved_this_step": False,
+            "workstation_starvation_steps": self.workstation_starvation_steps,
         }
 
 
@@ -602,6 +680,8 @@ class WarehouseSimulation:
                 robot_count=config.robot_count,
                 queue_length=0,
                 demand_rate=config.initial_site_demand.get(sid, 1.0),
+                workstation_enabled=config.workstation_enabled,
+                workstation_processing_rate=config.workstation_processing_rate,
             )
             for sid in ids
         }
@@ -611,6 +691,7 @@ class WarehouseSimulation:
                 step=0,
                 deadline_steps=config.task_deadline_steps,
             )
+            site.seed_workstation_buffer(config.initial_workstation_buffer.get(sid, 0))
         self._degrading_robot_id: Optional[str] = None
         if config.degradation_enabled:
             self._degrading_robot_id = self._configure_degrading_robot(config)
@@ -892,6 +973,7 @@ class WarehouseSimulation:
             for sid, site in self._sites.items():
                 site._last_step = step
                 completed_this_step = site.service_in_progress(step)
+                site.deposit_workstation_deliveries(completed_this_step)
                 for robot in site.robots:
                     if robot.graceful_drain_completion_step == step:
                         if self._quarantined_robot_id is None:
@@ -950,9 +1032,52 @@ class WarehouseSimulation:
                         )
                         created_by_site[sid] += added
 
+                workstation_metrics = site.process_workstation()
+
                 fault_count = sum(1 for r in site.robots if r.faulted)
                 throughput = telemetry.throughput_rate
                 task_metrics = site.task_metrics(completed_this_step, step=step)
+                task_metrics.update(workstation_metrics)
+                cascade_started = (
+                    config.workstation_enabled
+                    and config.degradation_enabled
+                    and any(
+                        metrics_step["sites"].get(sid, {}).get("workstation_starved_this_step", False)
+                        for metrics_step in self._metrics
+                        if metrics_step["step"] >= config.degradation_start_step
+                    )
+                )
+                current_step_cascade = (
+                    config.workstation_enabled
+                    and config.degradation_enabled
+                    and step >= config.degradation_start_step
+                    and workstation_metrics["workstation_starved_this_step"]
+                )
+                previous_cascade_steps = [
+                    metrics_step["step"]
+                    for metrics_step in self._metrics
+                    if (
+                        metrics_step["step"] >= config.degradation_start_step
+                        and metrics_step["sites"].get(sid, {}).get(
+                            "workstation_starved_this_step",
+                            False,
+                        )
+                    )
+                ]
+                cascade_started = cascade_started or current_step_cascade
+                cascade_start_step = (
+                    min(previous_cascade_steps + ([step] if current_step_cascade else []))
+                    if cascade_started else None
+                )
+                cascade_starvation_steps = len(previous_cascade_steps) + (
+                    1 if current_step_cascade else 0
+                )
+                task_metrics.update({
+                    "cascade_started": cascade_started,
+                    "cascade_start_step": cascade_start_step,
+                    "cascade_starvation_steps": cascade_starvation_steps,
+                    "affected_resource_count": 2 if cascade_started else 1,
+                })
                 step_metrics["sites"][sid] = {
                     "queue": site.queued_task_count,
                     "faults": fault_count,
