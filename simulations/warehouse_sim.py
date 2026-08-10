@@ -18,6 +18,11 @@ from racs.agents.site_agent import AgentConfig, SiteAgent
 from racs.risk.risk_signals import RiskSignal, TelemetryInput
 
 
+DEFAULT_FAULT_SITE = "SITE_A"
+DEFAULT_FAULT_STEP = 10
+DEFAULT_FAULT_COUNT = 5
+
+
 @dataclass(frozen=True)
 class SimulationScenarioConfig:
     steps: int = 50
@@ -25,17 +30,31 @@ class SimulationScenarioConfig:
     site_ids: tuple[str, ...] = ("SITE_A", "SITE_B", "SITE_C", "SITE_D")
     robot_count: int = 20
     seed: int = 42
-    fault_site: str = "SITE_A"
-    fault_step: int = 10
-    fault_count: int = 5
+    fault_site: str = DEFAULT_FAULT_SITE
+    fault_step: int = DEFAULT_FAULT_STEP
+    fault_count: int = DEFAULT_FAULT_COUNT
     fault_robot_ids: Optional[tuple[str, ...]] = None
     initial_site_queue: Mapping[str, int] = field(default_factory=dict)
     initial_site_demand: Mapping[str, float] = field(default_factory=dict)
     tasks_per_step: float = 1.0
     base_service_steps: int = 3
     task_deadline_steps: int = 10
+    degradation_enabled: bool = False
+    degradation_robot_id: Optional[str] = None
+    degradation_site: Optional[str] = None
+    degradation_start_step: int = 0
+    degradation_rate_per_step: float = 0.0
+    minimum_service_capacity: float = 0.25
+    hard_failure_capacity_threshold: float = 0.25
 
     def __post_init__(self) -> None:
+        implicit_legacy_fault_default = (
+            self.degradation_enabled
+            and self.fault_site == DEFAULT_FAULT_SITE
+            and self.fault_step == DEFAULT_FAULT_STEP
+            and self.fault_count == DEFAULT_FAULT_COUNT
+            and self.fault_robot_ids is None
+        )
         if self.steps <= 0:
             raise ValueError("steps must be greater than 0")
         if self.step_duration_s <= 0:
@@ -44,11 +63,11 @@ class SimulationScenarioConfig:
             raise ValueError("robot_count must be greater than 0")
         if self.fault_count < 0:
             raise ValueError("fault_count must be greater than or equal to 0")
-        if not 0 <= self.fault_step < self.steps:
+        if not implicit_legacy_fault_default and not 0 <= self.fault_step < self.steps:
             raise ValueError("fault_step must satisfy 0 <= fault_step < steps")
         if self.fault_site not in self.site_ids:
             raise ValueError("fault_site must exist in site_ids")
-        if self.fault_count > self.robot_count:
+        if not implicit_legacy_fault_default and self.fault_count > self.robot_count:
             raise ValueError("fault_count cannot exceed robots available at fault_site")
         if self.fault_robot_ids is not None and len(self.fault_robot_ids) != self.fault_count:
             raise ValueError("fault_robot_ids count must match fault_count")
@@ -60,8 +79,31 @@ class SimulationScenarioConfig:
             raise ValueError("base_service_steps must be greater than 0")
         if self.task_deadline_steps <= 0:
             raise ValueError("task_deadline_steps must be greater than 0")
+        if self.degradation_start_step < 0 or self.degradation_start_step >= self.steps:
+            raise ValueError("degradation_start_step must satisfy 0 <= degradation_start_step < steps")
+        if self.degradation_rate_per_step < 0:
+            raise ValueError("degradation_rate_per_step must be greater than or equal to 0")
+        if not 0 < self.minimum_service_capacity <= 1.0:
+            raise ValueError("minimum_service_capacity must satisfy 0 < minimum_service_capacity <= 1")
+        if not 0.0 <= self.hard_failure_capacity_threshold <= 1.0:
+            raise ValueError(
+                "hard_failure_capacity_threshold must satisfy "
+                "0 <= hard_failure_capacity_threshold <= 1"
+            )
+        if self.degradation_enabled and self.degradation_site is None:
+            raise ValueError("degradation_site is required when degradation_enabled is true")
+        if self.degradation_enabled and self.fault_count > 0 and not implicit_legacy_fault_default:
+            raise ValueError("binary robot faults cannot be combined with progressive degradation")
 
         valid_sites = set(self.site_ids)
+        if self.degradation_site is not None and self.degradation_site not in valid_sites:
+            raise ValueError("degradation_site must exist in site_ids")
+        if (
+            self.degradation_robot_id is not None
+            and self.degradation_site is not None
+            and not self.degradation_robot_id.startswith(f"{self.degradation_site}_R")
+        ):
+            raise ValueError("degradation_robot_id must belong to degradation_site")
         for site_id, queue in self.initial_site_queue.items():
             if site_id not in valid_sites:
                 raise ValueError("initial_site_queue keys must exist in site_ids")
@@ -110,14 +152,53 @@ class SimRobot:
     speed_factor: float = 1.0
     available: bool = True
     current_task_id: Optional[str] = None
-    remaining_service_work: int = 0
+    remaining_service_work: float = 0.0
     service_time_multiplier: float = 1.0
     completed_task_count: int = 0
     busy_steps: int = 0
+    current_service_capacity: float = 1.0
+    degrading: bool = False
+    degradation_start_step: Optional[int] = None
+    degradation_rate_per_step: float = 0.0
+    minimum_service_capacity: float = 1.0
+    hard_failure_capacity_threshold: float = 0.0
+    hard_failed: bool = False
+    hard_failure_step: Optional[int] = None
 
     @property
     def can_accept_task(self) -> bool:
         return self.available and not self.faulted and self.current_task_id is None
+
+    def configure_degradation(
+        self,
+        start_step: int,
+        rate_per_step: float,
+        minimum_service_capacity: float,
+        hard_failure_capacity_threshold: float,
+    ) -> None:
+        self.degrading = True
+        self.degradation_start_step = start_step
+        self.degradation_rate_per_step = rate_per_step
+        self.minimum_service_capacity = minimum_service_capacity
+        self.hard_failure_capacity_threshold = hard_failure_capacity_threshold
+
+    def update_service_capacity(self, step: int) -> None:
+        if not self.degrading or self.degradation_start_step is None or self.hard_failed:
+            return
+        if step < self.degradation_start_step:
+            self.current_service_capacity = 1.0
+            return
+
+        elapsed_steps = step - self.degradation_start_step
+        self.current_service_capacity = max(
+            self.minimum_service_capacity,
+            1.0 - self.degradation_rate_per_step * elapsed_steps,
+        )
+        if self.current_service_capacity <= self.hard_failure_capacity_threshold:
+            self.hard_failed = True
+            self.hard_failure_step = step
+            self.faulted = True
+            self.available = False
 
 
 @dataclass
@@ -172,6 +253,7 @@ class SimSite:
         self,
         timestamp: Optional[float] = None,
         step_duration_s: float = 1.0,
+        base_service_steps: int = 1,
     ) -> TelemetryInput:
         active = sum(1 for r in self.robots if not r.faulted)
         fault_count = sum(1 for r in self.robots if r.faulted)
@@ -183,7 +265,11 @@ class SimSite:
         ]
         capacity = max(active, 1)
         recent_completed = sum(1 for task in completed if task.completed_step == self._last_step)
-        throughput = min(recent_completed / capacity, 1.0) if active else 0.0
+        healthy_expected_completions = capacity / base_service_steps
+        throughput = (
+            min(recent_completed / healthy_expected_completions, 1.0)
+            if active and healthy_expected_completions > 0 else 0.0
+        )
         error_rate = fault_count / max(self.robot_count, 1) * 0.5
         telemetry = TelemetryInput(
             site_id=self.site_id,
@@ -247,7 +333,7 @@ class SimSite:
                 continue
 
             robot.busy_steps += 1
-            robot.remaining_service_work -= 1
+            robot.remaining_service_work -= robot.current_service_capacity
             if robot.remaining_service_work > 0:
                 continue
 
@@ -257,7 +343,7 @@ class SimSite:
             completed.append(task)
             robot.completed_task_count += 1
             robot.current_task_id = None
-            robot.remaining_service_work = 0
+            robot.remaining_service_work = 0.0
 
         return completed
 
@@ -277,8 +363,8 @@ class SimSite:
             task.started_step = step
             robot.current_task_id = task.task_id
             robot.remaining_service_work = max(
-                1,
-                int(round(base_service_steps * robot.service_time_multiplier)),
+                1.0,
+                float(base_service_steps * robot.service_time_multiplier),
             )
 
         self.queue_length = self.queued_task_count
@@ -355,6 +441,9 @@ class WarehouseSimulation:
                 step=0,
                 deadline_steps=config.task_deadline_steps,
             )
+        self._degrading_robot_id: Optional[str] = None
+        if config.degradation_enabled:
+            self._degrading_robot_id = self._configure_degrading_robot(config)
         self._metrics: List[dict] = []
 
         if with_racs:
@@ -371,6 +460,40 @@ class WarehouseSimulation:
         else:
             self._brain = None
             self._agents = {}
+
+    def _configure_degrading_robot(self, config: SimulationScenarioConfig) -> str:
+        if config.degradation_site is None:
+            raise ValueError("degradation_site is required when degradation_enabled is true")
+
+        site = self._sites[config.degradation_site]
+        robots_by_id = {robot.robot_id: robot for robot in site.robots}
+        if config.degradation_robot_id is None:
+            robot = self._rng.choice(sorted(site.robots, key=lambda r: r.robot_id))
+        else:
+            if config.degradation_robot_id not in robots_by_id:
+                raise ValueError(
+                    f"degradation_robot_id must exist at {config.degradation_site}: "
+                    f"{config.degradation_robot_id}"
+                )
+            robot = robots_by_id[config.degradation_robot_id]
+
+        robot.configure_degradation(
+            start_step=config.degradation_start_step,
+            rate_per_step=config.degradation_rate_per_step,
+            minimum_service_capacity=config.minimum_service_capacity,
+            hard_failure_capacity_threshold=config.hard_failure_capacity_threshold,
+        )
+        return robot.robot_id
+
+    @staticmethod
+    def _has_implicit_legacy_fault_default(config: SimulationScenarioConfig) -> bool:
+        return (
+            config.degradation_enabled
+            and config.fault_site == DEFAULT_FAULT_SITE
+            and config.fault_step == DEFAULT_FAULT_STEP
+            and config.fault_count == DEFAULT_FAULT_COUNT
+            and config.fault_robot_ids is None
+        )
 
     def _validate_fault_robot_ids(self, config: SimulationScenarioConfig) -> None:
         if config.fault_robot_ids is None:
@@ -413,6 +536,8 @@ class WarehouseSimulation:
                 self._config.fault_robot_ids if fault_robot_ids is None else fault_robot_ids
             ),
         )
+        if self._has_implicit_legacy_fault_default(config):
+            config = replace(config, fault_step=0, fault_count=0)
         self._validate_fault_robot_ids(config)
         print(f"\n{'='*60}")
         print(f"Simulation: {'WITH RACS' if self._with_racs else 'WITHOUT RACS'}")
@@ -422,6 +547,10 @@ class WarehouseSimulation:
 
         for step in range(config.steps):
             simulated_time = step * self._step_duration_s
+
+            for site in self._sites.values():
+                for robot in site.robots:
+                    robot.update_service_capacity(step)
 
             created_by_site: Dict[str, int] = {}
             for site in self._sites.values():
@@ -457,7 +586,29 @@ class WarehouseSimulation:
                     f"{len(faulted)} robots"
                 )
 
-            step_metrics: dict = {"step": step, "faulted_robot_ids": faulted_robot_ids, "sites": {}}
+            degrading_robot = self._get_degrading_robot()
+            step_metrics: dict = {
+                "step": step,
+                "faulted_robot_ids": faulted_robot_ids,
+                "degrading_robot_id": self._degrading_robot_id,
+                "degradation_start_step": (
+                    config.degradation_start_step if config.degradation_enabled else None
+                ),
+                "hard_failure_step": (
+                    degrading_robot.hard_failure_step if degrading_robot is not None else None
+                ),
+                "service_capacity_by_step": (
+                    {
+                        self._degrading_robot_id: round(
+                            degrading_robot.current_service_capacity,
+                            3,
+                        )
+                    }
+                    if degrading_robot is not None and self._degrading_robot_id is not None
+                    else {}
+                ),
+                "sites": {},
+            }
 
             for sid, site in self._sites.items():
                 site._last_step = step
@@ -469,6 +620,7 @@ class WarehouseSimulation:
                 telemetry = site.to_telemetry(
                     timestamp=simulated_time,
                     step_duration_s=self._step_duration_s,
+                    base_service_steps=config.base_service_steps,
                 )
 
                 if self._with_racs and sid in self._agents:
@@ -503,6 +655,15 @@ class WarehouseSimulation:
 
         self._print_summary()
         return self._metrics
+
+    def _get_degrading_robot(self) -> Optional[SimRobot]:
+        if self._degrading_robot_id is None:
+            return None
+        for site in self._sites.values():
+            for robot in site.robots:
+                if robot.robot_id == self._degrading_robot_id:
+                    return robot
+        return None
 
     def _print_step(self, step: int, metrics: dict) -> None:
         parts = []
