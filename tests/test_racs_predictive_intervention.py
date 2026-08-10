@@ -412,3 +412,92 @@ def test_reactive_baseline_remains_unchanged() -> None:
 
     assert [m["baseline_reaction_step"] for m in metrics] == [None, 1, None, None]
     assert [m["task_reassignment_step"] for m in metrics] == [None, None, 2, None]
+
+
+def test_racs_fallback_recovers_stranded_work_at_hard_failure_without_prediction() -> None:
+    config = racs_config(
+        steps=3,
+        initial_site_queue={"SITE_A": 1},
+        tasks_per_step=0,
+        degradation_rate_per_step=0.5,
+        minimum_service_capacity=0.5,
+        hard_failure_capacity_threshold=0.5,
+    )
+    sim = WarehouseSimulation(
+        config=config,
+        with_racs=True,
+        racs_intervention_risk_level=RiskLevel.CRITICAL,
+    )
+
+    metrics = sim.run()
+    task = sim._sites["SITE_A"].tasks["SITE_A_T000000"]
+
+    assert metrics[1]["fallback_reaction_step"] == 1
+    assert metrics[1]["fallback_recovery_events"] == [
+        {
+            "task_id": "SITE_A_T000000",
+            "from_robot": "SITE_A_R000",
+            "step": 1,
+            "reason": "fallback",
+        }
+    ]
+    assert task.created_step == 0
+    assert task.deadline_step == 20
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.assigned_robot_id == "SITE_A_R001"
+
+
+def test_racs_fallback_recovery_matches_baseline_queue_and_reassignment_timing() -> None:
+    config = racs_config(
+        steps=4,
+        initial_site_queue={"SITE_A": 1},
+        tasks_per_step=0,
+        degradation_rate_per_step=0.5,
+        minimum_service_capacity=0.5,
+        hard_failure_capacity_threshold=0.5,
+    )
+
+    baseline = WarehouseSimulation(config=config, with_racs=False).run()
+    racs = WarehouseSimulation(
+        config=config,
+        with_racs=True,
+        racs_intervention_risk_level=RiskLevel.CRITICAL,
+    ).run()
+
+    assert [m["sites"]["SITE_A"]["queue"] for m in racs] == [
+        m["sites"]["SITE_A"]["queue"] for m in baseline
+    ]
+    assert [m["task_reassignment_step"] for m in racs] == [None, None, 2, None]
+    assert racs[2]["reassignment_events"][0]["reason"] == "fallback"
+    assert racs[-1]["sites"]["SITE_A"]["tasks_reassigned"] == baseline[-1]["sites"]["SITE_A"]["tasks_reassigned"]
+
+
+def test_predictive_recovery_then_physical_hard_failure_does_not_recover_twice() -> None:
+    metrics = WarehouseSimulation(config=racs_config(), with_racs=True).run()
+
+    assert sum(len(m["predictive_recovery_events"]) for m in metrics) == 1
+    assert sum(len(m["fallback_recovery_events"]) for m in metrics) == 0
+    assert metrics[-1]["hard_failure_step"] == metrics[-1]["counterfactual_failure_step"]
+    assert metrics[-1]["sites"]["SITE_A"]["predictive_tasks_reassigned"] == 1
+    assert metrics[-1]["sites"]["SITE_A"]["tasks_reassigned"] == 1
+
+
+def test_racs_fallback_recovery_is_not_same_step_reassignment() -> None:
+    config = racs_config(
+        steps=3,
+        initial_site_queue={"SITE_A": 1},
+        tasks_per_step=0,
+        degradation_rate_per_step=0.5,
+        minimum_service_capacity=0.5,
+        hard_failure_capacity_threshold=0.5,
+    )
+
+    metrics = WarehouseSimulation(
+        config=config,
+        with_racs=True,
+        racs_intervention_risk_level=RiskLevel.CRITICAL,
+    ).run()
+
+    assert metrics[1]["fallback_recovery_events"]
+    assert metrics[1]["reassignment_events"] == []
+    assert metrics[2]["reassignment_events"]

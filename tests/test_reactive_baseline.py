@@ -71,7 +71,12 @@ def test_stranded_task_is_requeued_after_hard_failure() -> None:
 
     assert metrics[1]["baseline_reaction_step"] == 1
     assert metrics[1]["baseline_recovery_events"] == [
-        {"task_id": "SITE_A_T000000", "from_robot": "SITE_A_R000", "step": 1}
+        {
+            "task_id": "SITE_A_T000000",
+            "from_robot": "SITE_A_R000",
+            "step": 1,
+            "reason": "baseline",
+        }
     ]
     assert task.status == TaskStatus.QUEUED
     assert task.assigned_robot_id is None
@@ -129,7 +134,12 @@ def test_recovered_but_unassigned_task_is_not_counted_reassigned() -> None:
     task = sim._sites["SITE_A"].tasks["SITE_A_T000000"]
 
     assert metrics[1]["baseline_recovery_events"] == [
-        {"task_id": "SITE_A_T000000", "from_robot": "SITE_A_R000", "step": 1}
+        {
+            "task_id": "SITE_A_T000000",
+            "from_robot": "SITE_A_R000",
+            "step": 1,
+            "reason": "baseline",
+        }
     ]
     assert all(step["reassignment_events"] == [] for step in metrics)
     assert metrics[-1]["sites"]["SITE_A"]["tasks_reassigned"] == 0

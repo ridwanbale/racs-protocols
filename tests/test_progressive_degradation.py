@@ -293,7 +293,7 @@ def test_threshold_zero_allows_no_hard_failure_trajectory() -> None:
     assert metrics[-1]["hard_failure_step"] is None
 
 
-def test_robot_makes_no_service_progress_after_hard_failure() -> None:
+def test_racs_fallback_recovers_task_after_hard_failure_without_service_progress() -> None:
     config = degradation_config(
         steps=3,
         initial_site_queue={"SITE_A": 1},
@@ -306,13 +306,22 @@ def test_robot_makes_no_service_progress_after_hard_failure() -> None:
     )
     sim = WarehouseSimulation(config=config, with_racs=True)
 
-    sim.run()
+    metrics = sim.run()
     robot = sim._sites["SITE_A"].robots[0]
     task = sim._sites["SITE_A"].tasks["SITE_A_T000000"]
 
     assert robot.hard_failed
-    assert robot.remaining_service_work == 10.0
-    assert task.status == TaskStatus.IN_PROGRESS
+    assert robot.remaining_service_work == 0.0
+    assert robot.current_task_id is None
+    assert metrics[1]["fallback_recovery_events"] == [
+        {
+            "task_id": "SITE_A_T000000",
+            "from_robot": "SITE_A_R000",
+            "step": 1,
+            "reason": "fallback",
+        }
+    ]
+    assert task.status == TaskStatus.QUEUED
 
 
 def test_healthy_task_service_behavior_is_unchanged_when_degradation_disabled() -> None:

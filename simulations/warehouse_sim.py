@@ -403,7 +403,11 @@ class SimSite:
         self.queue_length = self.queued_task_count
         return reassignment_events
 
-    def recover_stranded_tasks_from_hard_failed_robots(self, step: int) -> List[dict]:
+    def recover_stranded_tasks_from_hard_failed_robots(
+        self,
+        step: int,
+        reason: str = "baseline",
+    ) -> List[dict]:
         recovery_events = []
         for robot in self.robots:
             if not robot.hard_failed or robot.current_task_id is None:
@@ -415,11 +419,12 @@ class SimSite:
             task.started_step = None
             task.last_requeued_step = step
             task.last_requeued_from_robot_id = robot.robot_id
-            task.last_requeued_reason = "baseline"
+            task.last_requeued_reason = reason
             recovery_events.append({
                 "task_id": task.task_id,
                 "from_robot": robot.robot_id,
                 "step": step,
+                "reason": reason,
             })
             robot.current_task_id = None
             robot.remaining_service_work = 0.0
@@ -782,6 +787,8 @@ class WarehouseSimulation:
                 "task_reassignment_step": None,
                 "reassignment_events": [],
                 "baseline_recovery_events": [],
+                "fallback_recovery_events": [],
+                "fallback_reaction_step": None,
                 "risk_detection_step": self._risk_detection_step,
                 "risk_detection_score": self._risk_detection_score,
                 "risk_detection_level": self._risk_detection_level,
@@ -824,10 +831,21 @@ class WarehouseSimulation:
                     self._agents[sid].tick(telemetry, now=simulated_time)
 
                 if not self._with_racs:
-                    recovery_events = site.recover_stranded_tasks_from_hard_failed_robots(step)
+                    recovery_events = site.recover_stranded_tasks_from_hard_failed_robots(
+                        step,
+                        reason="baseline",
+                    )
                     if recovery_events:
                         step_metrics["baseline_recovery_events"].extend(recovery_events)
                         step_metrics["baseline_reaction_step"] = step
+                else:
+                    recovery_events = site.recover_stranded_tasks_from_hard_failed_robots(
+                        step,
+                        reason="fallback",
+                    )
+                    if recovery_events:
+                        step_metrics["fallback_recovery_events"].extend(recovery_events)
+                        step_metrics["fallback_reaction_step"] = step
 
                 # Without RACS: simulate cascade manually
                 if not self._with_racs and step > config.fault_step and sid != config.fault_site:
