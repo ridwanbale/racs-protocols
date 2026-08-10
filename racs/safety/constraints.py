@@ -17,6 +17,7 @@ KNOWN_COORDINATION_COMMANDS = {
     "reduce_intake",
     "redistribute_tasks",
     "quarantine_robot",
+    "drain_robot",
     "safe_hold",
 }
 
@@ -113,12 +114,12 @@ class SafetyGate:
                 limit_value=sorted(KNOWN_COORDINATION_COMMANDS),
                 description=f"Unknown coordination command type '{command_type}'",
             ))
-        if command_type == "quarantine_robot" and not action.get("robot_id"):
+        if command_type in ("quarantine_robot", "drain_robot") and not action.get("robot_id"):
             violations.append(ConstraintViolation(
                 constraint_name="required_robot_id",
                 actual_value=action.get("robot_id"),
                 limit_value="non-empty robot_id",
-                description="quarantine_robot command requires robot_id",
+                description=f"{command_type} command requires robot_id",
             ))
 
         # Hard constraint: robot speed

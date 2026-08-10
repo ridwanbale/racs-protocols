@@ -170,6 +170,10 @@ class SimRobot:
     hard_failure_capacity_threshold: float = 0.0
     hard_failed: bool = False
     hard_failure_step: Optional[int] = None
+    predictively_draining: bool = False
+    drain_step: Optional[int] = None
+    graceful_drain_completion_step: Optional[int] = None
+    drain_interrupted_by_failure: bool = False
     predictively_quarantined: bool = False
     quarantine_step: Optional[int] = None
 
@@ -178,6 +182,7 @@ class SimRobot:
         return (
             self.available
             and not self.faulted
+            and not self.predictively_draining
             and not self.predictively_quarantined
             and self.current_task_id is None
         )
@@ -210,6 +215,8 @@ class SimRobot:
         if self.current_service_capacity <= self.hard_failure_capacity_threshold:
             self.hard_failed = True
             self.hard_failure_step = step
+            if self.predictively_draining and not self.predictively_quarantined:
+                self.drain_interrupted_by_failure = True
             self.faulted = True
             self.available = False
 
@@ -358,6 +365,12 @@ class SimSite:
             robot.completed_task_count += 1
             robot.current_task_id = None
             robot.remaining_service_work = 0.0
+            if robot.predictively_draining:
+                robot.predictively_draining = False
+                robot.predictively_quarantined = True
+                robot.quarantine_step = step
+                robot.graceful_drain_completion_step = step
+                robot.available = False
 
         return completed
 
@@ -459,6 +472,37 @@ class SimSite:
             "from_robot": robot.robot_id,
             "step": step,
         }]
+
+    def drain_robot(self, robot_id: str, step: int) -> dict:
+        robots_by_id = {robot.robot_id: robot for robot in self.robots}
+        if robot_id not in robots_by_id:
+            raise ValueError(f"robot_id must exist at {self.site_id}: {robot_id}")
+        robot = robots_by_id[robot_id]
+        if robot.hard_failed or robot.predictively_quarantined:
+            return {
+                "robot_id": robot.robot_id,
+                "step": step,
+                "current_task_id": robot.current_task_id,
+                "immediate_quarantine": False,
+            }
+
+        robot.predictively_draining = True
+        robot.drain_step = step
+        if robot.current_task_id is None:
+            robot.predictively_draining = False
+            robot.predictively_quarantined = True
+            robot.quarantine_step = step
+            robot.available = False
+            immediate_quarantine = True
+        else:
+            immediate_quarantine = False
+
+        return {
+            "robot_id": robot.robot_id,
+            "step": step,
+            "current_task_id": robot.current_task_id,
+            "immediate_quarantine": immediate_quarantine,
+        }
 
     def _observable_robot_anomaly(self, base_service_steps: int) -> dict:
         candidates = []
@@ -577,6 +621,7 @@ class WarehouseSimulation:
         self._risk_detection_level: Optional[str] = None
         self._risk_detection_robot_anomaly: Optional[float] = None
         self._intervention_step: Optional[int] = None
+        self._draining_robot_id: Optional[str] = None
         self._quarantined_robot_id: Optional[str] = None
         self._counterfactual_failure_step = self._compute_counterfactual_failure_step(config)
         self._metrics: List[dict] = []
@@ -699,6 +744,33 @@ class WarehouseSimulation:
                 self._current_step_metrics["predictive_recovery_events"].extend(
                     recovery_events
                 )
+        elif cmd_type == "drain_robot":
+            if self._current_step is None:
+                return
+            robot_id = command.get("robot_id")
+            if not robot_id:
+                raise ValueError("drain_robot command requires robot_id")
+            drain_event = site.drain_robot(robot_id, step=self._current_step)
+            if self._risk_detection_step is None:
+                self._risk_detection_step = self._current_step
+                self._risk_detection_score = command.get("risk_score")
+                self._risk_detection_level = command.get("risk_level")
+                self._risk_detection_robot_anomaly = command.get("robot_anomaly")
+            self._intervention_step = self._current_step
+            self._draining_robot_id = robot_id
+            if drain_event.get("immediate_quarantine"):
+                self._quarantined_robot_id = robot_id
+            if self._current_step_metrics is not None:
+                self._current_step_metrics["risk_detection_step"] = self._risk_detection_step
+                self._current_step_metrics["risk_detection_score"] = self._risk_detection_score
+                self._current_step_metrics["risk_detection_level"] = self._risk_detection_level
+                self._current_step_metrics["risk_detection_robot_anomaly"] = (
+                    self._risk_detection_robot_anomaly
+                )
+                self._current_step_metrics["intervention_step"] = self._intervention_step
+                self._current_step_metrics["draining_robot_id"] = self._draining_robot_id
+                self._current_step_metrics["drain_events"].append(drain_event)
+                self._current_step_metrics["quarantined_robot_id"] = self._quarantined_robot_id
 
     def run(
         self,
@@ -794,7 +866,13 @@ class WarehouseSimulation:
                 "risk_detection_level": self._risk_detection_level,
                 "risk_detection_robot_anomaly": self._risk_detection_robot_anomaly,
                 "intervention_step": self._intervention_step,
+                "draining_robot_id": self._draining_robot_id,
                 "quarantined_robot_id": self._quarantined_robot_id,
+                "graceful_drain_completion_step": None,
+                "predictive_quarantine_step": None,
+                "drain_completed_before_failure": False,
+                "drain_interrupted_by_failure": False,
+                "drain_events": [],
                 "predictive_recovery_events": [],
                 "service_capacity_by_step": (
                     {
@@ -814,6 +892,20 @@ class WarehouseSimulation:
             for sid, site in self._sites.items():
                 site._last_step = step
                 completed_this_step = site.service_in_progress(step)
+                for robot in site.robots:
+                    if robot.graceful_drain_completion_step == step:
+                        if self._quarantined_robot_id is None:
+                            self._quarantined_robot_id = robot.robot_id
+                        step_metrics["quarantined_robot_id"] = self._quarantined_robot_id
+                        step_metrics["graceful_drain_completion_step"] = step
+                        step_metrics["predictive_quarantine_step"] = step
+                        step_metrics["drain_completed_before_failure"] = (
+                            not robot.hard_failed
+                            or robot.hard_failure_step is None
+                            or step < robot.hard_failure_step
+                        )
+                    if robot.drain_interrupted_by_failure:
+                        step_metrics["drain_interrupted_by_failure"] = True
                 reassignment_events = site.assign_queued_tasks(
                     step=step,
                     base_service_steps=config.base_service_steps,

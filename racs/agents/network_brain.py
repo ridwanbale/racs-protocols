@@ -102,13 +102,13 @@ class NetworkBrain:
             return
 
         command = {
-            "type": "quarantine_robot",
+            "type": "drain_robot",
             "site_id": signal.site_id,
             "robot_id": suspect_robot_id,
             "risk_score": signal.composite_score,
             "risk_level": signal.level.value,
             "robot_anomaly": robot_anomaly,
-            "rationale": "local risk signal exceeded predictive intervention threshold",
+            "rationale": "local risk signal exceeded predictive drain threshold",
         }
         self._local_interventions[signal.site_id] = command
         self._issue_command(signal.site_id, command)
