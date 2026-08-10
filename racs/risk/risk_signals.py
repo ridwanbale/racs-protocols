@@ -38,6 +38,8 @@ class TelemetryInput:
     error_rate_5min: float        # errors per minute over last 5 min
     avg_task_latency_s: float = 0.0
     network_latency_ms: float = 0.0
+    suspect_robot_id: Optional[str] = None
+    suspect_robot_anomaly: float = 0.0
     timestamp: float = field(default_factory=time.time)
 
 

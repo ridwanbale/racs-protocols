@@ -12,6 +12,15 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 
+KNOWN_COORDINATION_COMMANDS = {
+    "throttle_outflow",
+    "reduce_intake",
+    "redistribute_tasks",
+    "quarantine_robot",
+    "safe_hold",
+}
+
+
 class ConstraintAction(Enum):
     ALLOW = "ALLOW"
     BLOCK = "BLOCK"
@@ -96,6 +105,21 @@ class SafetyGate:
         by action type; missing keys are treated as zero / safe defaults.
         """
         violations: List[ConstraintViolation] = []
+        command_type = action.get("type", "")
+        if command_type and command_type not in KNOWN_COORDINATION_COMMANDS:
+            violations.append(ConstraintViolation(
+                constraint_name="known_command_type",
+                actual_value=command_type,
+                limit_value=sorted(KNOWN_COORDINATION_COMMANDS),
+                description=f"Unknown coordination command type '{command_type}'",
+            ))
+        if command_type == "quarantine_robot" and not action.get("robot_id"):
+            violations.append(ConstraintViolation(
+                constraint_name="required_robot_id",
+                actual_value=action.get("robot_id"),
+                limit_value="non-empty robot_id",
+                description="quarantine_robot command requires robot_id",
+            ))
 
         # Hard constraint: robot speed
         proposed_speed = action.get("robot_speed_ms", 0.0)

@@ -150,6 +150,7 @@ def test_reaction_and_reassignment_timing_are_deterministic() -> None:
     assert [m["reassignment_events"] for m in first] == [
         m["reassignment_events"] for m in second
     ]
+    assert first[2]["reassignment_events"][0]["reason"] == "baseline"
 
 
 def test_healthy_run_is_unchanged() -> None:

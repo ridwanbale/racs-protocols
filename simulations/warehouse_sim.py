@@ -11,11 +11,12 @@ import random
 import time
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from math import ceil
 from typing import Dict, List, Mapping, Optional, Tuple
 
 from racs.agents.network_brain import NetworkBrain
 from racs.agents.site_agent import AgentConfig, SiteAgent
-from racs.risk.risk_signals import RiskSignal, TelemetryInput
+from racs.risk.risk_signals import RiskLevel, RiskSignal, TelemetryInput
 
 
 DEFAULT_FAULT_SITE = "SITE_A"
@@ -135,6 +136,8 @@ class SimTask:
     reassignment_count: int = 0
     last_requeued_step: Optional[int] = None
     last_requeued_from_robot_id: Optional[str] = None
+    last_requeued_reason: Optional[str] = None
+    predictive_reassignment_count: int = 0
 
     @property
     def completion_latency_steps(self) -> Optional[int]:
@@ -167,10 +170,17 @@ class SimRobot:
     hard_failure_capacity_threshold: float = 0.0
     hard_failed: bool = False
     hard_failure_step: Optional[int] = None
+    predictively_quarantined: bool = False
+    quarantine_step: Optional[int] = None
 
     @property
     def can_accept_task(self) -> bool:
-        return self.available and not self.faulted and self.current_task_id is None
+        return (
+            self.available
+            and not self.faulted
+            and not self.predictively_quarantined
+            and self.current_task_id is None
+        )
 
     def configure_degradation(
         self,
@@ -285,6 +295,7 @@ class SimSite:
                 float(sum(latencies) / len(latencies) * step_duration_s)
                 if latencies else 0.0
             ),
+            **self._observable_robot_anomaly(base_service_steps=base_service_steps),
         )
         if timestamp is not None:
             telemetry.timestamp = timestamp
@@ -372,11 +383,14 @@ class SimSite:
             )
             if task.last_requeued_from_robot_id is not None:
                 task.reassignment_count += 1
+                if task.last_requeued_reason == "predictive":
+                    task.predictive_reassignment_count += 1
                 reassignment_events.append({
                     "task_id": task.task_id,
                     "from_robot": task.last_requeued_from_robot_id,
                     "to_robot": robot.robot_id,
                     "step": step,
+                    "reason": task.last_requeued_reason,
                     "stranded_task_duration": (
                         step - task.last_requeued_step
                         if task.last_requeued_step is not None else 0
@@ -384,6 +398,7 @@ class SimSite:
                 })
                 task.last_requeued_from_robot_id = None
                 task.last_requeued_step = None
+                task.last_requeued_reason = None
 
         self.queue_length = self.queued_task_count
         return reassignment_events
@@ -400,6 +415,7 @@ class SimSite:
             task.started_step = None
             task.last_requeued_step = step
             task.last_requeued_from_robot_id = robot.robot_id
+            task.last_requeued_reason = "baseline"
             recovery_events.append({
                 "task_id": task.task_id,
                 "from_robot": robot.robot_id,
@@ -410,6 +426,63 @@ class SimSite:
 
         self.queue_length = self.queued_task_count
         return recovery_events
+
+    def quarantine_robot(self, robot_id: str, step: int) -> List[dict]:
+        robots_by_id = {robot.robot_id: robot for robot in self.robots}
+        if robot_id not in robots_by_id:
+            raise ValueError(f"robot_id must exist at {self.site_id}: {robot_id}")
+        robot = robots_by_id[robot_id]
+        robot.predictively_quarantined = True
+        robot.quarantine_step = step
+        robot.available = False
+
+        if robot.current_task_id is None:
+            return []
+
+        task = self.tasks[robot.current_task_id]
+        task.status = TaskStatus.QUEUED
+        task.assigned_robot_id = None
+        task.started_step = None
+        task.last_requeued_step = step
+        task.last_requeued_from_robot_id = robot.robot_id
+        task.last_requeued_reason = "predictive"
+        robot.current_task_id = None
+        robot.remaining_service_work = 0.0
+        self.queue_length = self.queued_task_count
+        return [{
+            "task_id": task.task_id,
+            "from_robot": robot.robot_id,
+            "step": step,
+        }]
+
+    def _observable_robot_anomaly(self, base_service_steps: int) -> dict:
+        candidates = []
+        for robot in self.robots:
+            if robot.current_task_id is None:
+                continue
+            task = self.tasks[robot.current_task_id]
+            if task.started_step is None:
+                continue
+            task_age = self._last_step - task.started_step
+            candidates.append((
+                task_age,
+                task.task_id,
+                robot.robot_id,
+            ))
+        if not candidates:
+            return {"suspect_robot_id": None, "suspect_robot_anomaly": 0.0}
+
+        max_age, _, robot_id = max(candidates)
+        peer_ages = [age for age, _, rid in candidates if rid != robot_id]
+        if not peer_ages:
+            return {"suspect_robot_id": robot_id, "suspect_robot_anomaly": 0.0}
+
+        peer_reference_age = min(peer_ages)
+        anomaly = max(0.0, (max_age - peer_reference_age) / max(base_service_steps, 1))
+        return {
+            "suspect_robot_id": robot_id,
+            "suspect_robot_anomaly": round(anomaly, 3),
+        }
 
     def task_metrics(self, completed_this_step: List[SimTask], step: int) -> dict:
         completed = [task for task in self.tasks.values() if task.status == TaskStatus.COMPLETED]
@@ -426,6 +499,9 @@ class SimSite:
             "tasks_late": self.late_task_count,
             "tasks_failed": self.failed_task_count,
             "tasks_reassigned": sum(task.reassignment_count for task in self.tasks.values()),
+            "predictive_tasks_reassigned": sum(
+                task.predictive_reassignment_count for task in self.tasks.values()
+            ),
             "avg_completion_latency": round(sum(latencies) / len(latencies), 3) if latencies else 0.0,
             "per_robot_completed": {
                 robot.robot_id: robot.completed_task_count for robot in self.robots
@@ -456,6 +532,8 @@ class WarehouseSimulation:
         seed: int = 42,
         step_duration_s: float = 1.0,
         config: Optional[SimulationScenarioConfig] = None,
+        racs_intervention_risk_level: RiskLevel = RiskLevel.MEDIUM,
+        racs_robot_anomaly_threshold: float = 1.0,
     ) -> None:
         if config is None:
             config = SimulationScenarioConfig(
@@ -487,10 +565,23 @@ class WarehouseSimulation:
         self._degrading_robot_id: Optional[str] = None
         if config.degradation_enabled:
             self._degrading_robot_id = self._configure_degrading_robot(config)
+        self._current_step: Optional[int] = None
+        self._current_step_metrics: Optional[dict] = None
+        self._risk_detection_step: Optional[int] = None
+        self._risk_detection_score: Optional[float] = None
+        self._risk_detection_level: Optional[str] = None
+        self._risk_detection_robot_anomaly: Optional[float] = None
+        self._intervention_step: Optional[int] = None
+        self._quarantined_robot_id: Optional[str] = None
+        self._counterfactual_failure_step = self._compute_counterfactual_failure_step(config)
         self._metrics: List[dict] = []
 
         if with_racs:
-            self._brain = NetworkBrain(on_command=self._handle_brain_command)
+            self._brain = NetworkBrain(
+                on_command=self._handle_brain_command,
+                intervention_risk_level=racs_intervention_risk_level,
+                robot_anomaly_threshold=racs_robot_anomaly_threshold,
+            )
             self._agents: Dict[str, SiteAgent] = {
                 sid: SiteAgent(
                     AgentConfig(site_id=sid),
@@ -529,6 +620,23 @@ class WarehouseSimulation:
         return robot.robot_id
 
     @staticmethod
+    def _compute_counterfactual_failure_step(config: SimulationScenarioConfig) -> Optional[int]:
+        if not config.degradation_enabled:
+            return None
+        if config.hard_failure_capacity_threshold < config.minimum_service_capacity:
+            return None
+        if config.hard_failure_capacity_threshold >= 1.0:
+            return config.degradation_start_step
+        if config.degradation_rate_per_step == 0:
+            return None
+
+        elapsed_steps = ceil(
+            max(0.0, 1.0 - config.hard_failure_capacity_threshold - 1e-12)
+            / config.degradation_rate_per_step
+        )
+        return config.degradation_start_step + elapsed_steps
+
+    @staticmethod
     def _has_implicit_legacy_fault_default(config: SimulationScenarioConfig) -> bool:
         return (
             config.degradation_enabled
@@ -560,6 +668,32 @@ class WarehouseSimulation:
             site.demand_rate = max(0.3, site.demand_rate * 0.7)
         elif cmd_type == "reduce_intake":
             site.demand_rate = max(0.3, site.demand_rate * 0.8)
+        elif cmd_type == "quarantine_robot":
+            if self._current_step is None:
+                return
+            robot_id = command.get("robot_id")
+            if not robot_id:
+                raise ValueError("quarantine_robot command requires robot_id")
+            recovery_events = site.quarantine_robot(robot_id, step=self._current_step)
+            if self._risk_detection_step is None:
+                self._risk_detection_step = self._current_step
+                self._risk_detection_score = command.get("risk_score")
+                self._risk_detection_level = command.get("risk_level")
+                self._risk_detection_robot_anomaly = command.get("robot_anomaly")
+            self._intervention_step = self._current_step
+            self._quarantined_robot_id = robot_id
+            if self._current_step_metrics is not None:
+                self._current_step_metrics["risk_detection_step"] = self._risk_detection_step
+                self._current_step_metrics["risk_detection_score"] = self._risk_detection_score
+                self._current_step_metrics["risk_detection_level"] = self._risk_detection_level
+                self._current_step_metrics["risk_detection_robot_anomaly"] = (
+                    self._risk_detection_robot_anomaly
+                )
+                self._current_step_metrics["intervention_step"] = self._intervention_step
+                self._current_step_metrics["quarantined_robot_id"] = self._quarantined_robot_id
+                self._current_step_metrics["predictive_recovery_events"].extend(
+                    recovery_events
+                )
 
     def run(
         self,
@@ -640,6 +774,7 @@ class WarehouseSimulation:
                 "hard_failure_step": (
                     degrading_robot.hard_failure_step if degrading_robot is not None else None
                 ),
+                "counterfactual_failure_step": self._counterfactual_failure_step,
                 "robot_failure_step": (
                     degrading_robot.hard_failure_step if degrading_robot is not None else None
                 ),
@@ -647,6 +782,13 @@ class WarehouseSimulation:
                 "task_reassignment_step": None,
                 "reassignment_events": [],
                 "baseline_recovery_events": [],
+                "risk_detection_step": self._risk_detection_step,
+                "risk_detection_score": self._risk_detection_score,
+                "risk_detection_level": self._risk_detection_level,
+                "risk_detection_robot_anomaly": self._risk_detection_robot_anomaly,
+                "intervention_step": self._intervention_step,
+                "quarantined_robot_id": self._quarantined_robot_id,
+                "predictive_recovery_events": [],
                 "service_capacity_by_step": (
                     {
                         self._degrading_robot_id: round(
@@ -659,6 +801,8 @@ class WarehouseSimulation:
                 ),
                 "sites": {},
             }
+            self._current_step = step
+            self._current_step_metrics = step_metrics
 
             for sid, site in self._sites.items():
                 site._last_step = step
@@ -708,6 +852,8 @@ class WarehouseSimulation:
                 }
 
             self._metrics.append(step_metrics)
+            self._current_step = None
+            self._current_step_metrics = None
 
             if step % 10 == 0:
                 self._print_step(step, step_metrics)

@@ -15,6 +15,14 @@ from ..safety.audit_log import AuditEventType, AuditLog
 from ..safety.constraints import SafetyConfig, SafetyGate
 
 
+RISK_LEVEL_ORDER = {
+    RiskLevel.LOW: 0,
+    RiskLevel.MEDIUM: 1,
+    RiskLevel.HIGH: 2,
+    RiskLevel.CRITICAL: 3,
+}
+
+
 class NetworkBrain:
     """
     Central coordination layer. Receives risk signals from all site agents,
@@ -29,6 +37,8 @@ class NetworkBrain:
         safety_config: Optional[SafetyConfig] = None,
         on_command: Optional[Callable[[str, dict], None]] = None,
         audit_log_path: Optional[str] = None,
+        intervention_risk_level: RiskLevel = RiskLevel.MEDIUM,
+        robot_anomaly_threshold: float = 1.0,
     ) -> None:
         self._aggregator = RiskAggregator()
         self._cascade_detector = CascadeDetector()
@@ -40,6 +50,9 @@ class NetworkBrain:
         self._on_command = on_command  # callback: (site_id, command_dict) -> None
         self._active_recovery_plans: Dict[str, RecoveryPlan] = {}
         self._site_utilisation: Dict[str, float] = {}
+        self._local_interventions: Dict[str, dict] = {}
+        self._intervention_risk_level = intervention_risk_level
+        self._robot_anomaly_threshold = robot_anomaly_threshold
 
     def ingest_signal(
         self, signal: RiskSignal, now: Optional[float] = None
@@ -71,8 +84,34 @@ class NetworkBrain:
             )
             self._respond_to_cascade(alert)
 
+        self._respond_to_local_risk(signal)
         self._rebalance_if_needed(now=effective_now)
         return alert
+
+    def _respond_to_local_risk(self, signal: RiskSignal) -> None:
+        if signal.site_id in self._local_interventions:
+            return
+        if RISK_LEVEL_ORDER[signal.level] < RISK_LEVEL_ORDER[self._intervention_risk_level]:
+            return
+        telemetry = signal.source_telemetry
+        suspect_robot_id = getattr(telemetry, "suspect_robot_id", None)
+        if not suspect_robot_id:
+            return
+        robot_anomaly = getattr(telemetry, "suspect_robot_anomaly", 0.0)
+        if robot_anomaly < self._robot_anomaly_threshold:
+            return
+
+        command = {
+            "type": "quarantine_robot",
+            "site_id": signal.site_id,
+            "robot_id": suspect_robot_id,
+            "risk_score": signal.composite_score,
+            "risk_level": signal.level.value,
+            "robot_anomaly": robot_anomaly,
+            "rationale": "local risk signal exceeded predictive intervention threshold",
+        }
+        self._local_interventions[signal.site_id] = command
+        self._issue_command(signal.site_id, command)
 
     def _respond_to_cascade(self, alert: CascadeAlert) -> None:
         if alert.origin_site in self._active_recovery_plans:
