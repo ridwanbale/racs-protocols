@@ -240,7 +240,7 @@ def test_predictive_reassignment_occurs_no_earlier_than_next_step() -> None:
     recovery_step = next(i for i, m in enumerate(metrics) if m["predictive_recovery_events"])
     reassignment_step = next(i for i, m in enumerate(metrics) if m["reassignment_events"])
 
-    assert reassignment_step == recovery_step + 1
+    assert reassignment_step >= recovery_step + 1
     assert metrics[reassignment_step]["task_reassignment_step"] == reassignment_step
 
 

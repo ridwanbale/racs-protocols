@@ -11,6 +11,10 @@ import numpy as np
 
 from .risk_signals import RiskLevel, RiskSignal, TelemetryInput
 
+LOCAL_ANOMALY_MEDIUM_SCORE = 0.30
+LOCAL_ANOMALY_HIGH_SCORE = 0.60
+LOCAL_ANOMALY_SCALE = LOCAL_ANOMALY_MEDIUM_SCORE
+
 try:
     import xgboost as xgb
     _XGB_AVAILABLE = True
@@ -126,8 +130,10 @@ class RiskPredictor:
             recovery = self._fallback.predict_recovery_latency(features)
             confidence = 0.70
 
-        composite = 0.45 * congestion + 0.40 * failure + 0.15 * min(recovery / 300.0, 1.0)
-        level = RiskLevel.from_score(composite)
+        site_score = 0.45 * congestion + 0.40 * failure + 0.15 * min(recovery / 300.0, 1.0)
+        local_anomaly_score = _local_anomaly_risk_score(telemetry.suspect_robot_anomaly)
+        effective_score = max(site_score, local_anomaly_score)
+        level = RiskLevel.from_score(effective_score)
 
         return RiskSignal(
             site_id=telemetry.site_id,
@@ -136,5 +142,20 @@ class RiskPredictor:
             recovery_latency_seconds=recovery,
             level=level,
             confidence=confidence,
+            site_risk_score=site_score,
+            local_anomaly_score=local_anomaly_score,
             source_telemetry=telemetry,
         )
+
+
+def _local_anomaly_risk_score(suspect_robot_anomaly: float) -> float:
+    """
+    Map observable peer-relative robot task-age anomaly to bounded local risk.
+
+    The simulator reports suspect_robot_anomaly as:
+        (suspect current-task age - fastest peer current-task age) / base_service_steps
+
+    A value of 1.0 means the suspect robot is lagging a peer by roughly one
+    expected healthy service duration, which is treated as MEDIUM local risk.
+    """
+    return float(np.clip(max(suspect_robot_anomaly, 0.0) * LOCAL_ANOMALY_SCALE, 0.0, 1.0))

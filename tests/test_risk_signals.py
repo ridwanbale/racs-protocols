@@ -72,12 +72,30 @@ class TestRiskSignal:
             recovery_latency_seconds=55.0,
             level=RiskLevel.MEDIUM,
             confidence=0.85,
+            site_risk_score=0.25,
+            local_anomaly_score=0.35,
         )
         d = sig.to_dict()
         restored = RiskSignal.from_dict(d)
         assert restored.site_id == sig.site_id
         assert abs(restored.congestion_probability - sig.congestion_probability) < 1e-9
         assert restored.level == sig.level
+        assert restored.site_risk_score == 0.25
+        assert restored.local_anomaly_score == 0.35
+
+    def test_composite_score_uses_effective_local_anomaly_risk(self):
+        sig = RiskSignal(
+            site_id="A",
+            congestion_probability=0.01,
+            failure_likelihood=0.01,
+            recovery_latency_seconds=10,
+            level=RiskLevel.MEDIUM,
+            site_risk_score=0.05,
+            local_anomaly_score=0.30,
+        )
+
+        assert sig.site_composite_score < 0.05
+        assert sig.composite_score == 0.30
 
 
 class TestRiskPredictor:
@@ -119,3 +137,43 @@ class TestRiskPredictor:
             assert 0.0 <= sig.congestion_probability <= 1.0
             assert 0.0 <= sig.failure_likelihood <= 1.0
             assert sig.recovery_latency_seconds >= 0.0
+
+    def test_local_anomaly_can_raise_effective_risk_before_site_congestion(self):
+        predictor = RiskPredictor()
+        t = make_telemetry(
+            queue_length=0,
+            robot_fault_count=0,
+            throughput_rate=1.0,
+            error_rate_5min=0.0,
+            avg_task_latency_s=0.0,
+            suspect_robot_id="TEST_SITE_R001",
+            suspect_robot_anomaly=1.0,
+        )
+
+        sig = predictor.predict(t)
+
+        assert sig.site_risk_score is not None
+        assert sig.site_risk_score < 0.30
+        assert sig.local_anomaly_score == 0.30
+        assert sig.composite_score == 0.30
+        assert sig.level == RiskLevel.MEDIUM
+
+    def test_local_anomaly_mapping_is_bounded_and_monotonic(self):
+        predictor = RiskPredictor()
+        scores = [
+            predictor.predict(make_telemetry(suspect_robot_anomaly=value)).local_anomaly_score
+            for value in [0.0, 0.5, 1.0, 2.0, 10.0]
+        ]
+
+        assert scores == sorted(scores)
+        assert scores[0] == 0.0
+        assert scores[2] == 0.30
+        assert scores[3] == 0.60
+        assert scores[-1] == 1.0
+
+    def test_healthy_peer_variation_remains_low_local_anomaly_risk(self):
+        predictor = RiskPredictor()
+        sig = predictor.predict(make_telemetry(suspect_robot_anomaly=0.75))
+
+        assert sig.local_anomaly_score == pytest.approx(0.225)
+        assert sig.local_anomaly_score < 0.30

@@ -53,18 +53,28 @@ class RiskSignal:
     recovery_latency_seconds: float    # estimated seconds to recover
     level: RiskLevel
     confidence: float = 1.0            # model confidence 0.0–1.0
+    site_risk_score: Optional[float] = None
+    local_anomaly_score: float = 0.0
     signal_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: float = field(default_factory=time.time)
     source_telemetry: Optional[TelemetryInput] = None
 
     @property
-    def composite_score(self) -> float:
-        """Weighted composite risk score used for prioritisation."""
+    def site_composite_score(self) -> float:
+        """Generic site-level risk score from congestion/failure/recovery features."""
         return (
             0.45 * self.congestion_probability
             + 0.40 * self.failure_likelihood
             + 0.15 * min(self.recovery_latency_seconds / 300.0, 1.0)
         )
+
+    @property
+    def composite_score(self) -> float:
+        """Effective risk score used for prioritisation."""
+        site_score = self.site_risk_score
+        if site_score is None:
+            site_score = self.site_composite_score
+        return max(site_score, self.local_anomaly_score)
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +83,12 @@ class RiskSignal:
             "congestion_probability": self.congestion_probability,
             "failure_likelihood": self.failure_likelihood,
             "recovery_latency_seconds": self.recovery_latency_seconds,
+            "site_risk_score": (
+                self.site_composite_score
+                if self.site_risk_score is None
+                else self.site_risk_score
+            ),
+            "local_anomaly_score": self.local_anomaly_score,
             "composite_score": self.composite_score,
             "level": self.level.value,
             "confidence": self.confidence,
@@ -88,6 +104,8 @@ class RiskSignal:
             recovery_latency_seconds=data["recovery_latency_seconds"],
             level=RiskLevel(data["level"]),
             confidence=data.get("confidence", 1.0),
+            site_risk_score=data.get("site_risk_score"),
+            local_anomaly_score=data.get("local_anomaly_score", 0.0),
             signal_id=data.get("signal_id", str(uuid.uuid4())),
             timestamp=data.get("timestamp", time.time()),
         )

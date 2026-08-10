@@ -39,7 +39,19 @@
       "type": "number",
       "minimum": 0.0,
       "maximum": 1.0,
-      "description": "Weighted composite risk score used for inter-agent prioritisation."
+      "description": "Effective risk score used for inter-agent prioritisation."
+    },
+    "site_risk_score": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Generic site-level risk score from congestion, failure, and recovery-latency evidence."
+    },
+    "local_anomaly_score": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Observable robot-level anomaly risk score derived from suspect-robot task/service behavior relative to peers."
     },
     "level": {
       "type": "string",
