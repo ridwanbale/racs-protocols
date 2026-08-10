@@ -19,6 +19,7 @@ from simulations.experiments.racs_v1 import (
     derive_paired_metrics,
     run_experiment,
     run_paired_trial,
+    _with_paired_downstream_attribution,
 )
 
 
@@ -267,3 +268,106 @@ def test_policy_thresholds_are_recorded_in_manifest() -> None:
 
     assert result["manifest"]["racs_policy"]["intervention_risk_level"] == "HIGH"
     assert result["manifest"]["racs_policy"]["robot_anomaly_threshold"] == 2.0
+
+
+def workstation_resilience_config(wip: int = 0) -> RacsV1ExperimentConfig:
+    scenario = replace(
+        default_experiment_config(trial_count=1).scenario,
+        steps=60,
+        step_duration_s=10.0,
+        site_ids=("SITE_A",),
+        robot_count=4,
+        seed=1000,
+        fault_site="SITE_A",
+        fault_step=0,
+        fault_count=0,
+        initial_site_queue={"SITE_A": 0},
+        initial_site_demand={"SITE_A": 1.0},
+        tasks_per_step=0.85,
+        base_service_steps=4,
+        task_deadline_steps=16,
+        workstation_enabled=True,
+        workstation_processing_rate=0.85,
+        initial_workstation_buffer={"SITE_A": 0},
+        workstation_buffer_at_degradation_start={"SITE_A": wip},
+        degradation_enabled=True,
+        degradation_site="SITE_A",
+        degradation_robot_id="SITE_A_R000",
+        degradation_start_step=15,
+        degradation_rate_per_step=0.1,
+        minimum_service_capacity=0.2,
+        hard_failure_capacity_threshold=0.2,
+    )
+    return RacsV1ExperimentConfig(scenario=scenario, trial_count=1)
+
+
+def test_paired_healthy_starvation_does_not_count_as_degradation_induced_cascade() -> None:
+    rows = {
+        row["condition"]: row
+        for row in run_paired_trial(workstation_resilience_config(wip=0), seed=1000)
+    }
+
+    assert rows[CONDITION_HEALTHY]["missed_workstation_processing_units_by_step"][17] == 1
+    assert rows[CONDITION_BASELINE]["missed_workstation_processing_units_by_step"][17] == 1
+    assert rows[CONDITION_BASELINE]["positive_excess_missed_processing_units_by_step"][17] == 0
+    assert rows[CONDITION_BASELINE]["degradation_induced_cascade_start_step"] == 19
+
+
+def test_degraded_starvation_when_healthy_processes_counts_as_excess_loss() -> None:
+    rows = {
+        row["condition"]: row
+        for row in run_paired_trial(workstation_resilience_config(wip=0), seed=1000)
+    }
+
+    assert rows[CONDITION_HEALTHY]["missed_workstation_processing_units_by_step"][19] == 0
+    assert rows[CONDITION_BASELINE]["missed_workstation_processing_units_by_step"][19] == 1
+    assert rows[CONDITION_BASELINE]["positive_excess_missed_processing_units_by_step"][19] == 1
+    assert rows[CONDITION_BASELINE]["cumulative_positive_excess_missed_processing_units"] > 0
+
+
+def test_phase_shifted_misses_separate_onset_from_net_severity() -> None:
+    healthy = {
+        "missed_workstation_processing_units_by_step": [1, 0],
+        "downstream_completed_by_step_cumulative": [0, 1],
+    }
+    condition = {
+        "missed_workstation_processing_units_by_step": [0, 1],
+        "downstream_completed_by_step_cumulative": [1, 1],
+    }
+
+    result = _with_paired_downstream_attribution(condition, healthy)
+
+    assert result["positive_excess_missed_processing_units_by_step"] == [0, 1]
+    assert result["cumulative_positive_excess_missed_processing_units"] == 1
+    assert result["signed_missed_processing_delta_by_step"] == [-1, 1]
+    assert result["net_missed_workstation_processing_deficit_vs_healthy"] == 0
+    assert result["degradation_induced_cascade_started"] is True
+    assert result["degradation_induced_cascade_start_step"] == 1
+
+
+def test_paired_causal_attribution_uses_identical_processing_cadence_and_wip() -> None:
+    rows = {
+        row["condition"]: row
+        for row in run_paired_trial(workstation_resilience_config(wip=2), seed=1000)
+    }
+
+    assert rows[CONDITION_HEALTHY]["preconditioned_workstation_units"] == 2
+    assert rows[CONDITION_BASELINE]["preconditioned_workstation_units"] == 2
+    assert rows[CONDITION_RACS]["preconditioned_workstation_units"] == 2
+    assert len(rows[CONDITION_HEALTHY]["missed_workstation_processing_units_by_step"]) == len(
+        rows[CONDITION_BASELINE]["missed_workstation_processing_units_by_step"]
+    )
+    assert rows[CONDITION_BASELINE]["degradation_induced_cascade_start_step"] == 38
+    assert rows[CONDITION_RACS]["degradation_induced_cascade_start_step"] == 39
+
+
+def test_paired_metrics_include_excess_downstream_service_loss_delta() -> None:
+    paired = derive_paired_metrics(
+        run_paired_trial(workstation_resilience_config(wip=2), seed=1000)
+    )
+
+    assert "positive_excess_missed_processing_delta" in paired
+    assert paired["positive_excess_missed_processing_delta"] == 0
+    assert "net_missed_workstation_processing_deficit_delta" in paired
+    assert paired["net_missed_workstation_processing_deficit_delta"] == 0
+    assert "downstream_completion_deficit_delta" in paired

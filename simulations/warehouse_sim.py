@@ -262,6 +262,7 @@ class SimSite:
     workstation_processing_credit: float = 0.0
     workstation_completed_count: int = 0
     workstation_starvation_steps: int = 0
+    missed_workstation_processing_units: int = 0
     workstation_starvation_by_step: List[bool] = field(default_factory=list)
     workstation_buffer_by_step: List[int] = field(default_factory=list)
     downstream_completed_task_ids: List[str] = field(default_factory=list)
@@ -412,6 +413,8 @@ class SimSite:
                 "workstation_buffer_before_processing": 0,
                 "workstation_processing_entitlement": 0,
                 "workstation_completed_this_step": 0,
+                "missed_workstation_processing_units_this_step": 0,
+                "missed_workstation_processing_units": 0,
                 "downstream_tasks_completed": 0,
                 "initial_workstation_units": 0,
                 "preconditioned_workstation_units": 0,
@@ -430,6 +433,8 @@ class SimSite:
 
         buffer_before = len(self.workstation_input_buffer)
         processed = min(entitlement, buffer_before)
+        missed_units = max(entitlement - processed, 0)
+        self.missed_workstation_processing_units += missed_units
         for _ in range(processed):
             task_id = self.workstation_input_buffer.pop(0)
             self.downstream_completed_task_ids.append(task_id)
@@ -456,6 +461,8 @@ class SimSite:
             "workstation_buffer_before_processing": buffer_before,
             "workstation_processing_entitlement": entitlement,
             "workstation_completed_this_step": processed,
+            "missed_workstation_processing_units_this_step": missed_units,
+            "missed_workstation_processing_units": self.missed_workstation_processing_units,
             "downstream_tasks_completed": self.workstation_completed_count,
             "initial_workstation_units": self.initial_workstation_units,
             "preconditioned_workstation_units": self.preconditioned_workstation_units,
@@ -693,6 +700,8 @@ class SimSite:
             },
             "workstation_input_buffer": len(self.workstation_input_buffer),
             "workstation_completed_this_step": 0,
+            "missed_workstation_processing_units_this_step": 0,
+            "missed_workstation_processing_units": self.missed_workstation_processing_units,
             "downstream_tasks_completed": self.workstation_completed_count,
             "initial_workstation_units": self.initial_workstation_units,
             "preconditioned_workstation_units": self.preconditioned_workstation_units,
@@ -1117,7 +1126,7 @@ class WarehouseSimulation:
                     "workstation_buffer_before_preconditioning": None,
                     "workstation_buffer_after_preconditioning": None,
                 }))
-                cascade_started = (
+                post_degradation_starvation_started = (
                     config.workstation_enabled
                     and config.degradation_enabled
                     and any(
@@ -1126,13 +1135,13 @@ class WarehouseSimulation:
                         if metrics_step["step"] >= config.degradation_start_step
                     )
                 )
-                current_step_cascade = (
+                current_step_post_degradation_starvation = (
                     config.workstation_enabled
                     and config.degradation_enabled
                     and step >= config.degradation_start_step
                     and workstation_metrics["workstation_starved_this_step"]
                 )
-                previous_cascade_steps = [
+                previous_post_degradation_starvation_steps = [
                     metrics_step["step"]
                     for metrics_step in self._metrics
                     if (
@@ -1143,19 +1152,35 @@ class WarehouseSimulation:
                         )
                     )
                 ]
-                cascade_started = cascade_started or current_step_cascade
-                cascade_start_step = (
-                    min(previous_cascade_steps + ([step] if current_step_cascade else []))
-                    if cascade_started else None
+                post_degradation_starvation_started = (
+                    post_degradation_starvation_started
+                    or current_step_post_degradation_starvation
                 )
-                cascade_starvation_steps = len(previous_cascade_steps) + (
-                    1 if current_step_cascade else 0
+                post_degradation_starvation_start_step = (
+                    min(
+                        previous_post_degradation_starvation_steps
+                        + ([step] if current_step_post_degradation_starvation else [])
+                    )
+                    if post_degradation_starvation_started else None
+                )
+                post_degradation_starvation_steps = len(
+                    previous_post_degradation_starvation_steps
+                ) + (
+                    1 if current_step_post_degradation_starvation else 0
                 )
                 task_metrics.update({
-                    "cascade_started": cascade_started,
-                    "cascade_start_step": cascade_start_step,
-                    "cascade_starvation_steps": cascade_starvation_steps,
-                    "affected_resource_count": 2 if cascade_started else 1,
+                    "post_degradation_starvation_started": (
+                        post_degradation_starvation_started
+                    ),
+                    "post_degradation_starvation_start_step": (
+                        post_degradation_starvation_start_step
+                    ),
+                    "post_degradation_starvation_steps": (
+                        post_degradation_starvation_steps
+                    ),
+                    "affected_resource_count": (
+                        2 if post_degradation_starvation_started else 1
+                    ),
                 })
                 step_metrics["sites"][sid] = {
                     "queue": site.queued_task_count,

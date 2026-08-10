@@ -137,14 +137,14 @@ def run_paired_trial(
     baseline_config = base
     racs_config = base
 
-    return [
-        run_trial(
-            config,
-            seed,
-            CONDITION_HEALTHY,
-            healthy_config,
-            with_racs=False,
-        ),
+    healthy = run_trial(
+        config,
+        seed,
+        CONDITION_HEALTHY,
+        healthy_config,
+        with_racs=False,
+    )
+    baseline = _with_paired_downstream_attribution(
         run_trial(
             config,
             seed,
@@ -152,6 +152,9 @@ def run_paired_trial(
             baseline_config,
             with_racs=False,
         ),
+        healthy,
+    )
+    racs = _with_paired_downstream_attribution(
         run_trial(
             config,
             seed,
@@ -159,7 +162,10 @@ def run_paired_trial(
             racs_config,
             with_racs=True,
         ),
-    ]
+        healthy,
+    )
+
+    return [healthy, baseline, racs]
 
 
 def run_trial(
@@ -183,6 +189,42 @@ def run_trial(
     row["experiment_name"] = EXPERIMENT_NAME
     row["experiment_version"] = EXPERIMENT_VERSION
     return row
+
+
+def _with_paired_downstream_attribution(
+    condition: dict[str, Any],
+    healthy: dict[str, Any],
+) -> dict[str, Any]:
+    healthy_missed = healthy.get("missed_workstation_processing_units_by_step", [])
+    condition_missed = condition.get("missed_workstation_processing_units_by_step", [])
+    signed_delta = [
+        condition_value - healthy_value
+        for condition_value, healthy_value in zip(condition_missed, healthy_missed)
+    ]
+    positive_excess = [max(value, 0) for value in signed_delta]
+    cumulative_positive = sum(positive_excess)
+    net_deficit = sum(signed_delta)
+    start_step = next(
+        (index for index, value in enumerate(positive_excess) if value > 0),
+        None,
+    )
+    healthy_downstream = healthy.get("downstream_completed_by_step_cumulative", [])
+    condition_downstream = condition.get("downstream_completed_by_step_cumulative", [])
+    deficit_by_step = [
+        healthy_value - condition_value
+        for condition_value, healthy_value in zip(condition_downstream, healthy_downstream)
+    ]
+    condition["positive_excess_missed_processing_units_by_step"] = positive_excess
+    condition["cumulative_positive_excess_missed_processing_units"] = cumulative_positive
+    condition["signed_missed_processing_delta_by_step"] = signed_delta
+    condition["net_missed_workstation_processing_deficit_vs_healthy"] = net_deficit
+    condition["degradation_induced_cascade_started"] = cumulative_positive > 0
+    condition["degradation_induced_cascade_start_step"] = start_step
+    condition["downstream_completion_deficit_vs_healthy_by_step"] = deficit_by_step
+    condition["downstream_completion_deficit_vs_healthy"] = (
+        deficit_by_step[-1] if deficit_by_step else 0
+    )
+    return condition
 
 
 def derive_paired_metrics(trials: Iterable[dict[str, Any]]) -> dict[str, Any]:
@@ -216,9 +258,21 @@ def derive_paired_metrics(trials: Iterable[dict[str, Any]]) -> dict[str, Any]:
             racs.get("workstation_buffer_auc", 0)
             - baseline.get("workstation_buffer_auc", 0)
         ),
-        "cascade_starvation_delta": (
-            racs.get("cascade_starvation_steps", 0)
-            - baseline.get("cascade_starvation_steps", 0)
+        "post_degradation_starvation_delta": (
+            racs.get("post_degradation_starvation_steps", 0)
+            - baseline.get("post_degradation_starvation_steps", 0)
+        ),
+        "positive_excess_missed_processing_delta": (
+            racs.get("cumulative_positive_excess_missed_processing_units", 0)
+            - baseline.get("cumulative_positive_excess_missed_processing_units", 0)
+        ),
+        "net_missed_workstation_processing_deficit_delta": (
+            racs.get("net_missed_workstation_processing_deficit_vs_healthy", 0)
+            - baseline.get("net_missed_workstation_processing_deficit_vs_healthy", 0)
+        ),
+        "downstream_completion_deficit_delta": (
+            racs.get("downstream_completion_deficit_vs_healthy", 0)
+            - baseline.get("downstream_completion_deficit_vs_healthy", 0)
         ),
         "baseline_throughput_degradation": _throughput_degradation(
             healthy_completed, baseline["tasks_completed"]
@@ -250,9 +304,13 @@ def build_summary(
         "transport_delivered_to_workstation",
         "downstream_preconditioned_completed",
         "downstream_transport_completed",
+        "missed_workstation_processing_units",
+        "cumulative_positive_excess_missed_processing_units",
+        "net_missed_workstation_processing_deficit_vs_healthy",
+        "downstream_completion_deficit_vs_healthy",
         "workstation_starvation_steps",
         "workstation_buffer_auc",
-        "cascade_starvation_steps",
+        "post_degradation_starvation_steps",
         "affected_resource_count",
     ]
     delta_metrics = [
@@ -264,7 +322,10 @@ def build_summary(
         "downstream_completed_delta",
         "workstation_starvation_delta",
         "workstation_buffer_auc_delta",
-        "cascade_starvation_delta",
+        "post_degradation_starvation_delta",
+        "positive_excess_missed_processing_delta",
+        "net_missed_workstation_processing_deficit_delta",
+        "downstream_completion_deficit_delta",
         "throughput_degradation_delta",
     ]
     degradation_metrics = [
@@ -370,11 +431,19 @@ def metric_definitions() -> dict[str, str]:
         "transport_delivered_to_workstation": "Transport-completed AMR tasks deposited into the workstation input buffer during the run.",
         "downstream_preconditioned_completed": "Preconditioned staged units processed by the workstation.",
         "downstream_transport_completed": "AMR-delivered units processed by the workstation.",
+        "missed_workstation_processing_units": "Raw cumulative workstation processing entitlement not used because delivered input was unavailable. This is not causal attribution by itself.",
+        "positive_excess_missed_processing_units_by_step": "Per-step max(condition missed workstation processing units - paired healthy missed units, 0). Used for causal downstream-impact onset attribution.",
+        "cumulative_positive_excess_missed_processing_units": "Sum of positive_excess_missed_processing_units_by_step. This is a positive-only event/onset magnitude, not a signed net severity metric.",
+        "signed_missed_processing_delta_by_step": "Per-step condition missed workstation processing units minus paired healthy missed units. Negative values are preserved.",
+        "net_missed_workstation_processing_deficit_vs_healthy": "Sum of signed_missed_processing_delta_by_step. Positive means the condition lost more workstation opportunities overall than paired healthy; negative means it lost fewer.",
+        "degradation_induced_cascade_started": "True when cumulative_positive_excess_missed_processing_units is greater than zero.",
+        "degradation_induced_cascade_start_step": "First step where positive_excess_missed_processing_units_by_step is positive.",
+        "downstream_completion_deficit_vs_healthy": "healthy cumulative downstream completions minus condition cumulative downstream completions at the final step. Positive means the condition is behind healthy.",
         "workstation_starvation_steps": "Steps where the enabled workstation had integer processing entitlement but insufficient delivered input after startup eligibility. Lower is better.",
         "workstation_buffer_auc": "Sum of workstation input-buffer units over simulation steps. Interpretation is scenario-dependent.",
-        "cascade_started": "True when downstream workstation starvation occurs at or after degradation onset.",
-        "cascade_start_step": "First qualifying downstream starvation step at or after degradation onset, else None.",
-        "cascade_starvation_steps": "Count of qualifying downstream starvation steps at or after degradation onset. Steps may be non-contiguous. Lower is better.",
+        "post_degradation_starvation_started": "Raw indicator that workstation starvation occurred at or after degradation_start_step. This is timing-based and not causal attribution by itself.",
+        "post_degradation_starvation_start_step": "First raw workstation starvation step at or after degradation_start_step, else None.",
+        "post_degradation_starvation_steps": "Raw count of workstation starvation steps at or after degradation_start_step. Steps may be non-contiguous. Lower is better.",
         "affected_resource_count": "1 when impact remains transport-local; 2 once workstation starvation occurs.",
     }
 
@@ -401,14 +470,22 @@ def metric_directions() -> dict[str, str]:
         "transport_delivered_to_workstation": "higher_better",
         "downstream_preconditioned_completed": "context_dependent",
         "downstream_transport_completed": "higher_better",
+        "missed_workstation_processing_units": "lower_better",
+        "cumulative_positive_excess_missed_processing_units": "lower_better",
+        "net_missed_workstation_processing_deficit_vs_healthy": "lower_better",
+        "degradation_induced_cascade_started": "lower_better",
+        "downstream_completion_deficit_vs_healthy": "lower_better",
         "workstation_starvation_steps": "lower_better",
         "workstation_buffer_auc": "context_dependent",
-        "cascade_starvation_steps": "lower_better",
+        "post_degradation_starvation_steps": "lower_better",
         "affected_resource_count": "lower_better",
         "downstream_completed_delta": "higher_better",
         "workstation_starvation_delta": "lower_better",
         "workstation_buffer_auc_delta": "context_dependent",
-        "cascade_starvation_delta": "lower_better",
+        "post_degradation_starvation_delta": "lower_better",
+        "positive_excess_missed_processing_delta": "lower_better",
+        "net_missed_workstation_processing_deficit_delta": "lower_better",
+        "downstream_completion_deficit_delta": "lower_better",
     }
 
 
@@ -436,6 +513,18 @@ def _summarize_trial(
         sum(step["sites"][site_id]["workstation_completed_this_step"] for site_id in site_ids)
         for step in metrics
     ]
+    missed_workstation_by_step = [
+        sum(
+            step["sites"][site_id]["missed_workstation_processing_units_this_step"]
+            for site_id in site_ids
+        )
+        for step in metrics
+    ]
+    downstream_completed_cumulative = []
+    cumulative_downstream = 0
+    for completed in workstation_completed_by_step:
+        cumulative_downstream += completed
+        downstream_completed_cumulative.append(cumulative_downstream)
     final_site_metrics = [final["sites"][site_id] for site_id in site_ids]
     total_created = sum(site["tasks_created"] for site in final_site_metrics)
     total_completed = sum(site["tasks_completed"] for site in final_site_metrics)
@@ -460,15 +549,20 @@ def _summarize_trial(
     total_downstream_transport = sum(
         site["downstream_transport_completed"] for site in final_site_metrics
     )
+    total_missed_processing = sum(
+        site["missed_workstation_processing_units"] for site in final_site_metrics
+    )
     total_starvation_steps = sum(
         site["workstation_starvation_steps"] for site in final_site_metrics
     )
-    cascade_start_steps = [
-        site["cascade_start_step"]
+    post_degradation_starvation_start_steps = [
+        site["post_degradation_starvation_start_step"]
         for site in final_site_metrics
-        if site["cascade_start_step"] is not None
+        if site["post_degradation_starvation_start_step"] is not None
     ]
-    cascade_started = any(site["cascade_started"] for site in final_site_metrics)
+    post_degradation_starvation_started = any(
+        site["post_degradation_starvation_started"] for site in final_site_metrics
+    )
     avg_latency = _weighted_average(
         [
             (site["avg_completion_latency"], site["tasks_completed"])
@@ -504,17 +598,31 @@ def _summarize_trial(
         "queue_length_by_step": queue_by_step,
         "workstation_buffer_by_step": workstation_buffer_by_step,
         "workstation_completed_by_step": workstation_completed_by_step,
+        "downstream_completed_by_step_cumulative": downstream_completed_cumulative,
         "downstream_tasks_completed": total_downstream_completed,
         "preconditioned_workstation_units": total_preconditioned_units,
         "transport_delivered_to_workstation": total_transport_delivered,
         "downstream_preconditioned_completed": total_downstream_preconditioned,
         "downstream_transport_completed": total_downstream_transport,
+        "missed_workstation_processing_units_by_step": missed_workstation_by_step,
+        "missed_workstation_processing_units": total_missed_processing,
+        "positive_excess_missed_processing_units_by_step": [],
+        "cumulative_positive_excess_missed_processing_units": 0,
+        "signed_missed_processing_delta_by_step": [],
+        "net_missed_workstation_processing_deficit_vs_healthy": 0,
+        "degradation_induced_cascade_started": False,
+        "degradation_induced_cascade_start_step": None,
+        "downstream_completion_deficit_vs_healthy_by_step": [],
+        "downstream_completion_deficit_vs_healthy": 0,
         "workstation_starvation_steps": total_starvation_steps,
         "workstation_buffer_auc": sum(workstation_buffer_by_step),
-        "cascade_started": cascade_started,
-        "cascade_start_step": min(cascade_start_steps) if cascade_start_steps else None,
-        "cascade_starvation_steps": sum(
-            site["cascade_starvation_steps"] for site in final_site_metrics
+        "post_degradation_starvation_started": post_degradation_starvation_started,
+        "post_degradation_starvation_start_step": (
+            min(post_degradation_starvation_start_steps)
+            if post_degradation_starvation_start_steps else None
+        ),
+        "post_degradation_starvation_steps": sum(
+            site["post_degradation_starvation_steps"] for site in final_site_metrics
         ),
         "affected_resource_count": max(
             site["affected_resource_count"] for site in final_site_metrics

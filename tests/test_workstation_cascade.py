@@ -94,6 +94,40 @@ def test_workstation_cannot_process_more_units_than_buffer_contains() -> None:
     assert site["workstation_starved_this_step"] is False
 
 
+def test_missed_processing_units_capture_partial_shortfall() -> None:
+    metrics = WarehouseSimulation(
+        config=config(
+            steps=1,
+            workstation_processing_rate=2,
+            initial_workstation_buffer={"SITE_A": 1},
+            initial_site_queue={"SITE_A": 2},
+            base_service_steps=10,
+        ),
+        with_racs=False,
+    ).run()
+
+    site = site_steps(metrics)[0]
+    assert site["workstation_processing_entitlement"] == 2
+    assert site["workstation_completed_this_step"] == 1
+    assert site["missed_workstation_processing_units_this_step"] == 1
+    assert site["missed_workstation_processing_units"] == 1
+
+
+def test_zero_processing_entitlement_never_misses_processing_units() -> None:
+    metrics = WarehouseSimulation(
+        config=config(
+            steps=1,
+            workstation_processing_rate=0.5,
+            initial_workstation_buffer={"SITE_A": 0},
+        ),
+        with_racs=False,
+    ).run()
+
+    site = site_steps(metrics)[0]
+    assert site["workstation_processing_entitlement"] == 0
+    assert site["missed_workstation_processing_units_this_step"] == 0
+
+
 def test_starvation_boundary_requires_prior_or_initial_workstation_work() -> None:
     startup = WarehouseSimulation(
         config=config(steps=1, workstation_processing_rate=1),
@@ -136,7 +170,10 @@ def test_startup_handling_avoids_artificial_cascade_before_delivery() -> None:
         False,
         False,
     ]
-    assert all(site["cascade_started"] is False for site in site_steps(metrics)[:2])
+    assert all(
+        site["post_degradation_starvation_started"] is False
+        for site in site_steps(metrics)[:2]
+    )
 
 
 def test_healthy_stable_scenario_does_not_persistently_starve() -> None:
@@ -196,7 +233,7 @@ def test_recovered_delivery_restores_downstream_processing() -> None:
     assert any(site["workstation_completed_this_step"] > 0 for site in steps[3:])
 
 
-def test_cascade_start_step_is_first_qualifying_downstream_starvation() -> None:
+def test_post_degradation_starvation_start_step_is_first_raw_qualifying_starvation() -> None:
     metrics = WarehouseSimulation(
         config=config(
             steps=6,
@@ -220,11 +257,11 @@ def test_cascade_start_step_is_first_qualifying_downstream_starvation() -> None:
         for index, site in enumerate(site_steps(metrics))
         if site["workstation_starved_this_step"] and index >= 2
     ]
-    assert site_steps(metrics)[-1]["cascade_start_step"] == starvation_steps[0]
-    assert site_steps(metrics)[-1]["cascade_starvation_steps"] == len(starvation_steps)
+    assert site_steps(metrics)[-1]["post_degradation_starvation_start_step"] == starvation_steps[0]
+    assert site_steps(metrics)[-1]["post_degradation_starvation_steps"] == len(starvation_steps)
 
 
-def test_cascade_starvation_steps_counts_separated_starvation_events() -> None:
+def test_post_degradation_starvation_steps_counts_separated_events() -> None:
     metrics = WarehouseSimulation(
         config=config(
             steps=60,
@@ -250,8 +287,8 @@ def test_cascade_starvation_steps_counts_separated_starvation_events() -> None:
     ]
 
     assert starvation_steps == [19, 38, 50, 58]
-    assert site_steps(metrics)[-1]["cascade_starvation_steps"] == 4
-    assert site_steps(metrics)[-1]["cascade_starvation_steps"] != (
+    assert site_steps(metrics)[-1]["post_degradation_starvation_steps"] == 4
+    assert site_steps(metrics)[-1]["post_degradation_starvation_steps"] != (
         starvation_steps[-1] - starvation_steps[0] + 1
     )
 
@@ -505,5 +542,5 @@ def test_cascade_metrics_ignore_pre_degradation_startup_starvation() -> None:
     ]
 
     assert pre_degradation_starvation
-    assert site_steps(metrics)[14]["cascade_started"] is False
-    assert site_steps(metrics)[-1]["cascade_start_step"] is None
+    assert site_steps(metrics)[14]["post_degradation_starvation_started"] is False
+    assert site_steps(metrics)[-1]["post_degradation_starvation_start_step"] is None
