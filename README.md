@@ -26,7 +26,8 @@ Reference result: `results/seeded_robustness_30`
 Public tracked reference summary:
 `docs/experiments/results/racs_v1_seeded_robustness/`
 
-Run a new reproduction with a different experiment ID:
+After creating the fresh-clone environment in Quick Start, run a new
+reproduction with a different experiment ID:
 
 ```powershell
 .\.venv\Scripts\python.exe -m simulations.experiments.racs_v1 `
@@ -108,16 +109,26 @@ Reference results and plots are tracked under:
 - `docs/experiments/results/racs_v1_seeded_robustness/`
 - `docs/experiments/figures/racs_v1/`
 
-The frozen local reference result is `results/seeded_robustness_30`. New
-reproductions must use a different `--experiment-id` and must not overwrite
-that reference directory.
+Reference and reproduction paths:
 
-Generate plots from an existing result directory:
+- frozen original reference: `results/seeded_robustness_30`
+  - local run used to produce the committed figures
+  - full directory is intentionally untracked
+- public compact reference:
+  `docs/experiments/results/racs_v1_seeded_robustness/`
+  - summary/provenance only
+  - not sufficient to regenerate all six figures
+- fresh reproduction: `results/seeded_robustness_30_reproduction`
+
+New reproductions must use a different `--experiment-id` and must not overwrite
+the frozen original reference.
+
+Generate plots from the fresh reproduction output:
 
 ```powershell
 .\.venv\Scripts\python.exe -m simulations.experiments.plot_racs_v1 `
-  --result-dir results\seeded_robustness_30 `
-  --output-dir docs\experiments\figures\racs_v1
+  --result-dir results\seeded_robustness_30_reproduction `
+  --output-dir docs\experiments\figures\racs_v1_reproduction
 ```
 
 ### Architecture
@@ -152,8 +163,12 @@ A coordination layer subscribes to risk signals from all Site Agents and:
 ```powershell
 git clone https://github.com/ridwanbale/racs-protocols
 cd racs-protocols
+python -m venv .venv
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 .\.venv\Scripts\python.exe examples\quickstart.py
+.\.venv\Scripts\python.exe -m pytest tests\ -q -p no:cacheprovider
 ```
 
 ### Minimal example

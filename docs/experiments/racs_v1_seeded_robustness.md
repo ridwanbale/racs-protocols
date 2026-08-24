@@ -15,8 +15,12 @@ Reference summary artifacts:
 Reference/reproduction distinction:
 
 - REFERENCE RESULT: `results/seeded_robustness_30`
+  - local run used to produce the committed figures
+  - full directory is intentionally untracked
 - PUBLIC TRACKED REFERENCE SUMMARY:
   `docs/experiments/results/racs_v1_seeded_robustness/`
+  - summary/provenance only
+  - not sufficient to regenerate all six figures
 - NEW REPRODUCTION: must use a different `--experiment-id`
 
 ## Research Question
@@ -312,6 +316,15 @@ frozen result artifact rather than rerunning the simulation.
 
 ## Reproduction
 
+Fresh Windows PowerShell setup:
+
+```powershell
+python -m venv .venv
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
 From the source snapshot, run:
 
 ```powershell
@@ -325,12 +338,17 @@ From the source snapshot, run:
 Do not reuse `seeded_robustness_30`; new reproductions must use a different
 `--experiment-id` and must not overwrite the frozen reference result.
 
-Generate plots from an existing result directory:
+The plotter requires `paired_results.csv`, `trials.csv`, and
+`wip_summary.csv`. The compact tracked reference summary under
+`docs/experiments/results/racs_v1_seeded_robustness/` does not contain all of
+those inputs and cannot regenerate all six figures by itself.
+
+Generate plots from the fresh reproduction output:
 
 ```powershell
 .\.venv\Scripts\python.exe -m simulations.experiments.plot_racs_v1 `
-  --result-dir results\seeded_robustness_30 `
-  --output-dir docs\experiments\figures\racs_v1
+  --result-dir results\seeded_robustness_30_reproduction `
+  --output-dir docs\experiments\figures\racs_v1_reproduction
 ```
 
 Exact reproduction conditions:
