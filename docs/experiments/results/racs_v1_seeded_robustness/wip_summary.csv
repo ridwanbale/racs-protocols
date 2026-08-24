@@ -1,0 +1,5 @@
+workstation_wip_level,seed_count,racs_before_baseline_cascade_count,racs_before_baseline_cascade_fraction,baseline_cascade_incidence,racs_cascade_incidence,cascade_prevented_count,cascade_delayed_count,cascade_earlier_count,baseline_cascade_start_min,baseline_cascade_start_median,baseline_cascade_start_max,median_intervention_to_baseline_propagation_margin,queue_auc_delta_mean,latency_delta_mean,positive_excess_missed_processing_delta_mean,net_missed_workstation_processing_deficit_delta_mean,downstream_completion_deficit_delta_mean,before_cascade_net_deficit_delta_mean,at_or_after_cascade_net_deficit_delta_mean
+0,30,20,0.666667,1.0,1.0,0,5,0,16.0,24.0,38.0,3.0,-2.933333,-0.090067,-0.2,-0.133333,-0.133333,-0.1,-0.2
+1,30,24,0.8,1.0,1.0,0,6,0,16.0,25.0,38.0,3.0,-2.933333,-0.090067,-0.2,-0.133333,-0.133333,-0.125,-0.166667
+2,30,28,0.933333,1.0,1.0,0,6,0,17.0,28.5,45.0,9.0,-2.933333,-0.090067,-0.166667,-0.133333,-0.133333,-0.142857,0.0
+4,30,28,0.933333,0.966667,0.933333,1,4,0,24.0,44.0,59.0,25.0,-2.933333,-0.090067,-0.133333,-0.133333,-0.133333,-0.142857,0.0

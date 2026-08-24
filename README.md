@@ -4,6 +4,41 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![NIST AI RMF Aligned](https://img.shields.io/badge/NIST_AI_RMF-Aligned-green.svg)](NIST_ALIGNMENT.md)
 
+RACS is an open risk-aware coordination layer for heterogeneous autonomous
+systems.
+
+V1 implements a deterministic warehouse simulation with progressive localized
+AMR degradation, observable risk detection, predictive AMR drain/cordon,
+downstream propagation modeling, paired healthy counterfactual attribution, and
+a 30-seed baseline-versus-RACS robustness evaluation. The reactive baseline uses
+the same degradation and workload but waits for hard-failure recovery instead of
+predictive intervention.
+
+Primary observed result: RACS improved mean queue AUC and mean latency across
+the seeded study, while individual workload realizations included regressions.
+H2 was not established: downstream benefit was not greater in the
+intervention-before-propagation group than in the at/after-propagation group.
+Within the tested WIP levels, greater disturbance-time WIP was associated with a
+higher fraction of runs in which RACS intervened before propagation.
+
+Reference result: `results/seeded_robustness_30`
+
+Public tracked reference summary:
+`docs/experiments/results/racs_v1_seeded_robustness/`
+
+Run a new reproduction with a different experiment ID:
+
+```powershell
+.\.venv\Scripts\python.exe -m simulations.experiments.racs_v1 `
+  --seeds 30 `
+  --first-seed 1000 `
+  --output results `
+  --experiment-id seeded_robustness_30_reproduction
+```
+
+Full technical report:
+[docs/experiments/racs_v1_seeded_robustness.md](docs/experiments/racs_v1_seeded_robustness.md)
+
 ## The Problem
 
 As U.S. logistics and manufacturing operations increasingly depend on autonomous systems — robotic material handling, automated guided vehicles, AI-driven control software — a critical gap has emerged: **individual robots and automation components work reliably in isolation, but fail to coordinate safely as systems.**
@@ -23,7 +58,67 @@ Yet no open, vendor-agnostic coordination framework exists for U.S. operators �
 
 ## What RACS Does
 
-RACS (Risk-Aware Coordination System) is an open-source framework that enables autonomous systems to **anticipate operational risk, coordinate responses, and prevent cascading failures.**
+RACS (Risk-Aware Coordination System) is an open-source framework for autonomous
+systems to anticipate operational risk, coordinate responses, and reduce
+system-level degradation when local disruptions propagate.
+
+### V1 Warehouse Experiment
+
+The V1 seeded robustness experiment compares:
+
+- healthy control: no degradation
+- reactive baseline: progressive AMR degradation plus hard-failure recovery
+- RACS: same degradation plus predictive risk-aware drain/cordon and identical
+  hard-failure fallback
+
+Architecture:
+
+```mermaid
+flowchart LR
+    Simulation --> Telemetry
+    Telemetry --> RiskPrediction
+    RiskPrediction --> RiskSignal
+    RiskSignal --> NetworkBrain
+    NetworkBrain --> SafetyGate
+    SafetyGate --> DrainCordon
+    DrainCordon --> Simulation
+    HiddenDegradationTruth -. simulator only .-> Simulation
+```
+
+Task flow:
+
+```mermaid
+flowchart LR
+    AMRTransport[AMR transport] --> WorkstationBuffer[workstation buffer]
+    WorkstationBuffer --> WorkstationProcessing[workstation processing]
+```
+
+Experiment lifecycle:
+
+```mermaid
+flowchart TD
+    SeededArrival[seeded arrival realization] --> Healthy
+    SeededArrival --> ReactiveBaseline
+    SeededArrival --> RACS
+    Healthy --> PairedCounterfactual[paired downstream counterfactual]
+```
+
+Reference results and plots are tracked under:
+
+- `docs/experiments/results/racs_v1_seeded_robustness/`
+- `docs/experiments/figures/racs_v1/`
+
+The frozen local reference result is `results/seeded_robustness_30`. New
+reproductions must use a different `--experiment-id` and must not overwrite
+that reference directory.
+
+Generate plots from an existing result directory:
+
+```powershell
+.\.venv\Scripts\python.exe -m simulations.experiments.plot_racs_v1 `
+  --result-dir results\seeded_robustness_30 `
+  --output-dir docs\experiments\figures\racs_v1
+```
 
 ### Architecture
 
@@ -39,7 +134,7 @@ Each facility runs a local Site Agent that:
 **Layer 2 — Network Brain** (cross-facility)  
 A coordination layer subscribes to risk signals from all Site Agents and:
 - Computes cross-site capacity and workload balance
-- Detects potential cascading failures before they propagate
+- Detects elevated operational risk before or during propagation
 - Issues coordination commands to redistribute work across facilities
 - Maintains complete audit trail of all decisions
 
@@ -54,11 +149,11 @@ A coordination layer subscribes to risk signals from all Site Agents and:
 
 ## Quick Start
 
-```bash
+```powershell
 git clone https://github.com/ridwanbale/racs-protocols
 cd racs-protocols
-pip install -e ".[dev]"
-python examples/quickstart.py
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe examples\quickstart.py
 ```
 
 ### Minimal example
@@ -108,32 +203,17 @@ RACS includes pre-built simulation scenarios demonstrating coordination under st
 | `network_partition` | Communication failure between sites | Autonomous safe-state transition |
 | `crowdstrike_scenario` | Centralized update failure affecting multiple sites | Decentralized resilience score |
 
-Run all scenarios:
-```bash
-make simulate
-```
-
-Run a specific scenario:
-```bash
-python simulations/scenarios/crowdstrike_scenario.py
+Run a scenario:
+```powershell
+.\.venv\Scripts\python.exe simulations\scenarios\crowdstrike_scenario.py
 ```
 
 ## Benchmarks
 
-```bash
-make benchmark
-```
-
-Baseline results (from `benchmarks/baseline_results.json`):
-
-| Scenario | Mode | Recovery Time | Cascade Radius | Prevention Rate |
-|----------|------|--------------|---------------|----------------|
-| Robot failure | Without RACS | 28 steps | 2 sites | — |
-| Robot failure | With RACS | **14 steps** | **0 sites** | — |
-| Cascade prevention | Without RACS | — | 3 sites | 0% |
-| Cascade prevention | With RACS | 18 steps | **1 site** | **67%** |
-| CrowdStrike update failure | Without RACS | — | — | 0% |
-| CrowdStrike update failure | With RACS | — | — | **100%** |
+The current V1 benchmark is the seeded robustness experiment documented in
+[docs/experiments/racs_v1_seeded_robustness.md](docs/experiments/racs_v1_seeded_robustness.md).
+Legacy scenario demonstrations may exist in the repository, but the published
+V1 claims are limited to the tracked seeded robustness artifacts.
 
 ## NIST AI Risk Management Framework Alignment
 
@@ -143,7 +223,7 @@ RACS is designed to align with all four functions of the [NIST AI RMF 1.0](https
 |---------------|-------------------|
 | **GOVERN** | Safety constraints are policy-level YAML configurations, not code-level decisions |
 | **MAP** | Risk signals are explicitly categorized by type, severity, and confidence |
-| **MEASURE** | Standardized benchmarks measure recovery time, containment, and prevention rate |
+| **MEASURE** | Standardized experiments measure recovery time, containment, and paired degradation deltas |
 | **MANAGE** | Human override, controlled degradation, and audit logging |
 
 See [NIST_ALIGNMENT.md](NIST_ALIGNMENT.md) for detailed mapping.
@@ -167,8 +247,8 @@ racs-protocols/
 
 ## Running Tests
 
-```bash
-make test
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\ -q -p no:cacheprovider
 ```
 
 ## Related Work

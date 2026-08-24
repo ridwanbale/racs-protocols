@@ -1,0 +1,671 @@
+{
+  "condition_summaries": {
+    "degradation_racs": {
+      "affected_resource_count": {
+        "max": 2.0,
+        "mean": 1.983333,
+        "median": 2.0,
+        "min": 1.0,
+        "stdev": 0.128556
+      },
+      "average_completion_latency": {
+        "max": 8.487,
+        "mean": 6.7525,
+        "median": 6.6995,
+        "min": 4.65,
+        "stdev": 1.158319
+      },
+      "cumulative_positive_excess_missed_processing_units": {
+        "max": 6.0,
+        "mean": 3.291667,
+        "median": 3.0,
+        "min": 0.0,
+        "stdev": 1.205002
+      },
+      "downstream_completion_deficit_vs_healthy": {
+        "max": 5.0,
+        "mean": 2.775,
+        "median": 3.0,
+        "min": 0.0,
+        "stdev": 1.246592
+      },
+      "downstream_preconditioned_completed": {
+        "max": 4.0,
+        "mean": 1.75,
+        "median": 1.5,
+        "min": 0.0,
+        "stdev": 1.485221
+      },
+      "downstream_tasks_completed": {
+        "max": 47.0,
+        "mean": 42.083333,
+        "median": 42.0,
+        "min": 36.0,
+        "stdev": 2.262531
+      },
+      "downstream_transport_completed": {
+        "max": 43.0,
+        "mean": 40.333333,
+        "median": 40.0,
+        "min": 36.0,
+        "stdev": 1.7068
+      },
+      "final_queue_length": {
+        "max": 11.0,
+        "mean": 6.2,
+        "median": 6.5,
+        "min": 2.0,
+        "stdev": 1.998319
+      },
+      "missed_workstation_processing_units": {
+        "max": 15.0,
+        "mean": 8.916667,
+        "median": 9.0,
+        "min": 4.0,
+        "stdev": 2.262531
+      },
+      "net_missed_workstation_processing_deficit_vs_healthy": {
+        "max": 5.0,
+        "mean": 2.775,
+        "median": 3.0,
+        "min": 0.0,
+        "stdev": 1.246592
+      },
+      "peak_queue_length": {
+        "max": 12.0,
+        "mean": 7.733333,
+        "median": 7.0,
+        "min": 5.0,
+        "stdev": 1.679002
+      },
+      "post_degradation_starvation_steps": {
+        "max": 10.0,
+        "mean": 4.625,
+        "median": 5.0,
+        "min": 0.0,
+        "stdev": 2.122558
+      },
+      "preconditioned_workstation_units": {
+        "max": 4.0,
+        "mean": 1.75,
+        "median": 1.5,
+        "min": 0.0,
+        "stdev": 1.485221
+      },
+      "queue_auc": {
+        "max": 295.0,
+        "mean": 163.233333,
+        "median": 160.0,
+        "min": 63.0,
+        "stdev": 60.35953
+      },
+      "tasks_completed": {
+        "max": 46.0,
+        "mean": 41.8,
+        "median": 41.5,
+        "min": 37.0,
+        "stdev": 1.998319
+      },
+      "tasks_failed": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "stdev": 0.0
+      },
+      "tasks_late": {
+        "max": 1.0,
+        "mean": 0.033333,
+        "median": 0.0,
+        "min": 0.0,
+        "stdev": 0.180258
+      },
+      "transport_delivered_to_workstation": {
+        "max": 46.0,
+        "mean": 41.8,
+        "median": 41.5,
+        "min": 37.0,
+        "stdev": 1.998319
+      },
+      "unfinished_tasks_at_end": {
+        "max": 14.0,
+        "mean": 9.2,
+        "median": 9.5,
+        "min": 5.0,
+        "stdev": 1.998319
+      },
+      "workstation_buffer_auc": {
+        "max": 136.0,
+        "mean": 42.808333,
+        "median": 38.0,
+        "min": 11.0,
+        "stdev": 25.549851
+      },
+      "workstation_starvation_steps": {
+        "max": 12.0,
+        "mean": 5.358333,
+        "median": 5.0,
+        "min": 0.0,
+        "stdev": 2.329193
+      }
+    },
+    "degradation_reactive_baseline": {
+      "affected_resource_count": {
+        "max": 2.0,
+        "mean": 1.991667,
+        "median": 2.0,
+        "min": 1.0,
+        "stdev": 0.091287
+      },
+      "average_completion_latency": {
+        "max": 9.179,
+        "mean": 6.842567,
+        "median": 6.8065,
+        "min": 4.75,
+        "stdev": 1.152418
+      },
+      "cumulative_positive_excess_missed_processing_units": {
+        "max": 6.0,
+        "mean": 3.466667,
+        "median": 4.0,
+        "min": 0.0,
+        "stdev": 1.24302
+      },
+      "downstream_completion_deficit_vs_healthy": {
+        "max": 5.0,
+        "mean": 2.908333,
+        "median": 3.0,
+        "min": 0.0,
+        "stdev": 1.328396
+      },
+      "downstream_preconditioned_completed": {
+        "max": 4.0,
+        "mean": 1.75,
+        "median": 1.5,
+        "min": 0.0,
+        "stdev": 1.485221
+      },
+      "downstream_tasks_completed": {
+        "max": 47.0,
+        "mean": 41.95,
+        "median": 42.0,
+        "min": 36.0,
+        "stdev": 2.307642
+      },
+      "downstream_transport_completed": {
+        "max": 43.0,
+        "mean": 40.2,
+        "median": 40.0,
+        "min": 36.0,
+        "stdev": 1.766162
+      },
+      "final_queue_length": {
+        "max": 11.0,
+        "mean": 6.3,
+        "median": 7.0,
+        "min": 2.0,
+        "stdev": 2.010895
+      },
+      "missed_workstation_processing_units": {
+        "max": 15.0,
+        "mean": 9.05,
+        "median": 9.0,
+        "min": 4.0,
+        "stdev": 2.307642
+      },
+      "net_missed_workstation_processing_deficit_vs_healthy": {
+        "max": 5.0,
+        "mean": 2.908333,
+        "median": 3.0,
+        "min": 0.0,
+        "stdev": 1.328396
+      },
+      "peak_queue_length": {
+        "max": 13.0,
+        "mean": 7.833333,
+        "median": 8.0,
+        "min": 5.0,
+        "stdev": 1.760125
+      },
+      "post_degradation_starvation_steps": {
+        "max": 10.0,
+        "mean": 4.758333,
+        "median": 5.0,
+        "min": 0.0,
+        "stdev": 2.157636
+      },
+      "preconditioned_workstation_units": {
+        "max": 4.0,
+        "mean": 1.75,
+        "median": 1.5,
+        "min": 0.0,
+        "stdev": 1.485221
+      },
+      "queue_auc": {
+        "max": 322.0,
+        "mean": 166.166667,
+        "median": 162.5,
+        "min": 62.0,
+        "stdev": 60.928438
+      },
+      "tasks_completed": {
+        "max": 46.0,
+        "mean": 41.7,
+        "median": 41.0,
+        "min": 37.0,
+        "stdev": 2.010895
+      },
+      "tasks_failed": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "stdev": 0.0
+      },
+      "tasks_late": {
+        "max": 3.0,
+        "mean": 0.1,
+        "median": 0.0,
+        "min": 0.0,
+        "stdev": 0.540774
+      },
+      "transport_delivered_to_workstation": {
+        "max": 46.0,
+        "mean": 41.7,
+        "median": 41.0,
+        "min": 37.0,
+        "stdev": 2.010895
+      },
+      "unfinished_tasks_at_end": {
+        "max": 14.0,
+        "mean": 9.3,
+        "median": 10.0,
+        "min": 5.0,
+        "stdev": 2.010895
+      },
+      "workstation_buffer_auc": {
+        "max": 136.0,
+        "mean": 42.975,
+        "median": 38.0,
+        "min": 15.0,
+        "stdev": 24.356064
+      },
+      "workstation_starvation_steps": {
+        "max": 12.0,
+        "mean": 5.491667,
+        "median": 5.0,
+        "min": 0.0,
+        "stdev": 2.347879
+      }
+    },
+    "healthy_control": {
+      "affected_resource_count": {
+        "max": 1.0,
+        "mean": 1.0,
+        "median": 1.0,
+        "min": 1.0,
+        "stdev": 0.0
+      },
+      "average_completion_latency": {
+        "max": 6.083,
+        "mean": 4.661067,
+        "median": 4.5745,
+        "min": 4.222,
+        "stdev": 0.371951
+      },
+      "cumulative_positive_excess_missed_processing_units": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "stdev": 0.0
+      },
+      "downstream_completion_deficit_vs_healthy": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "stdev": 0.0
+      },
+      "downstream_preconditioned_completed": {
+        "max": 4.0,
+        "mean": 1.75,
+        "median": 1.5,
+        "min": 0.0,
+        "stdev": 1.485221
+      },
+      "downstream_tasks_completed": {
+        "max": 48.0,
+        "mean": 44.858333,
+        "median": 45.0,
+        "min": 39.0,
+        "stdev": 2.099603
+      },
+      "downstream_transport_completed": {
+        "max": 47.0,
+        "mean": 43.108333,
+        "median": 43.0,
+        "min": 39.0,
+        "stdev": 1.904421
+      },
+      "final_queue_length": {
+        "max": 5.0,
+        "mean": 0.633333,
+        "median": 0.0,
+        "min": 0.0,
+        "stdev": 1.114709
+      },
+      "missed_workstation_processing_units": {
+        "max": 12.0,
+        "mean": 6.141667,
+        "median": 6.0,
+        "min": 3.0,
+        "stdev": 2.099603
+      },
+      "net_missed_workstation_processing_deficit_vs_healthy": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "stdev": 0.0
+      },
+      "peak_queue_length": {
+        "max": 5.0,
+        "mean": 3.266667,
+        "median": 3.0,
+        "min": 2.0,
+        "stdev": 1.034963
+      },
+      "post_degradation_starvation_steps": {
+        "max": 8.0,
+        "mean": 1.833333,
+        "median": 1.0,
+        "min": 0.0,
+        "stdev": 1.984534
+      },
+      "preconditioned_workstation_units": {
+        "max": 4.0,
+        "mean": 1.75,
+        "median": 1.5,
+        "min": 0.0,
+        "stdev": 1.485221
+      },
+      "queue_auc": {
+        "max": 106.0,
+        "mean": 35.333333,
+        "median": 32.5,
+        "min": 12.0,
+        "stdev": 18.1151
+      },
+      "tasks_completed": {
+        "max": 50.0,
+        "mean": 47.066667,
+        "median": 47.0,
+        "min": 42.0,
+        "stdev": 1.795107
+      },
+      "tasks_failed": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "stdev": 0.0
+      },
+      "tasks_late": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "stdev": 0.0
+      },
+      "transport_delivered_to_workstation": {
+        "max": 50.0,
+        "mean": 47.066667,
+        "median": 47.0,
+        "min": 42.0,
+        "stdev": 1.795107
+      },
+      "unfinished_tasks_at_end": {
+        "max": 9.0,
+        "mean": 3.933333,
+        "median": 4.0,
+        "min": 1.0,
+        "stdev": 1.795107
+      },
+      "workstation_buffer_auc": {
+        "max": 268.0,
+        "mean": 107.241667,
+        "median": 100.0,
+        "min": 36.0,
+        "stdev": 52.746261
+      },
+      "workstation_starvation_steps": {
+        "max": 9.0,
+        "mean": 2.583333,
+        "median": 2.0,
+        "min": 0.0,
+        "stdev": 2.159923
+      }
+    }
+  },
+  "metric_direction": {
+    "affected_resource_count": "lower_better",
+    "average_completion_latency": "lower_better",
+    "baseline_throughput_degradation": "lower_better",
+    "cascade_start_delta": "higher_better",
+    "completed_task_delta": "higher_better",
+    "cumulative_positive_excess_missed_processing_units": "lower_better",
+    "degradation_induced_cascade_started": "lower_better",
+    "downstream_completed_delta": "higher_better",
+    "downstream_completion_deficit_delta": "lower_better",
+    "downstream_completion_deficit_vs_healthy": "lower_better",
+    "downstream_preconditioned_completed": "context_dependent",
+    "downstream_tasks_completed": "higher_better",
+    "downstream_transport_completed": "higher_better",
+    "final_queue_length": "lower_better",
+    "intervention_to_baseline_propagation_margin": "higher_better",
+    "late_task_delta": "lower_better",
+    "latency_delta": "lower_better",
+    "missed_workstation_processing_units": "lower_better",
+    "net_missed_workstation_processing_deficit_delta": "lower_better",
+    "net_missed_workstation_processing_deficit_vs_healthy": "lower_better",
+    "peak_queue_delta": "lower_better",
+    "peak_queue_length": "lower_better",
+    "positive_excess_missed_processing_delta": "lower_better",
+    "post_degradation_starvation_delta": "lower_better",
+    "post_degradation_starvation_steps": "lower_better",
+    "preconditioned_workstation_units": "context_dependent",
+    "queue_auc": "lower_better",
+    "queue_auc_delta": "lower_better",
+    "racs_throughput_degradation": "lower_better",
+    "tasks_completed": "higher_better",
+    "tasks_completed_delta": "higher_better",
+    "tasks_failed": "lower_better",
+    "tasks_late": "lower_better",
+    "throughput_degradation_delta": "lower_better",
+    "transport_delivered_to_workstation": "higher_better",
+    "unfinished_tasks_at_end": "lower_better",
+    "workstation_buffer_auc": "context_dependent",
+    "workstation_buffer_auc_delta": "context_dependent",
+    "workstation_starvation_delta": "lower_better",
+    "workstation_starvation_steps": "lower_better"
+  },
+  "paired_delta_summaries": {
+    "cascade_start_delta": {
+      "equal_count": 97,
+      "max": 20.0,
+      "mean": 1.262712,
+      "median": 0.0,
+      "min": 0.0,
+      "racs_better_count": 21,
+      "racs_worse_count": 0,
+      "stdev": 3.390353
+    },
+    "completed_task_delta": {
+      "equal_count": 108,
+      "max": 1.0,
+      "mean": 0.1,
+      "median": 0.0,
+      "min": 0.0,
+      "racs_better_count": 12,
+      "racs_worse_count": 0,
+      "stdev": 0.301258
+    },
+    "downstream_completed_delta": {
+      "equal_count": 104,
+      "max": 1.0,
+      "mean": 0.133333,
+      "median": 0.0,
+      "min": 0.0,
+      "racs_better_count": 16,
+      "racs_worse_count": 0,
+      "stdev": 0.34136
+    },
+    "downstream_completion_deficit_delta": {
+      "equal_count": 104,
+      "max": 0.0,
+      "mean": -0.133333,
+      "median": 0.0,
+      "min": -1.0,
+      "racs_better_count": 16,
+      "racs_worse_count": 0,
+      "stdev": 0.34136
+    },
+    "intervention_to_baseline_propagation_margin": {
+      "equal_count": 8,
+      "max": 43.0,
+      "mean": 11.73913,
+      "median": 8.0,
+      "min": -6.0,
+      "racs_better_count": 100,
+      "racs_worse_count": 7,
+      "stdev": 11.956124
+    },
+    "late_task_delta": {
+      "equal_count": 116,
+      "max": 0.0,
+      "mean": -0.066667,
+      "median": 0.0,
+      "min": -2.0,
+      "racs_better_count": 4,
+      "racs_worse_count": 0,
+      "stdev": 0.360516
+    },
+    "latency_delta": {
+      "equal_count": 76,
+      "max": 0.0,
+      "mean": -0.090067,
+      "median": 0.0,
+      "min": -0.6920000000000002,
+      "racs_better_count": 44,
+      "racs_worse_count": 0,
+      "stdev": 0.167863
+    },
+    "net_missed_workstation_processing_deficit_delta": {
+      "equal_count": 104,
+      "max": 0.0,
+      "mean": -0.133333,
+      "median": 0.0,
+      "min": -1.0,
+      "racs_better_count": 16,
+      "racs_worse_count": 0,
+      "stdev": 0.34136
+    },
+    "peak_queue_delta": {
+      "equal_count": 108,
+      "max": 0.0,
+      "mean": -0.1,
+      "median": 0.0,
+      "min": -1.0,
+      "racs_better_count": 12,
+      "racs_worse_count": 0,
+      "stdev": 0.301258
+    },
+    "positive_excess_missed_processing_delta": {
+      "equal_count": 99,
+      "max": 0.0,
+      "mean": -0.175,
+      "median": 0.0,
+      "min": -1.0,
+      "racs_better_count": 21,
+      "racs_worse_count": 0,
+      "stdev": 0.38156
+    },
+    "post_degradation_starvation_delta": {
+      "equal_count": 104,
+      "max": 0.0,
+      "mean": -0.133333,
+      "median": 0.0,
+      "min": -1.0,
+      "racs_better_count": 16,
+      "racs_worse_count": 0,
+      "stdev": 0.34136
+    },
+    "queue_auc_delta": {
+      "equal_count": 64,
+      "max": 6.0,
+      "mean": -2.933333,
+      "median": 0.0,
+      "min": -28.0,
+      "racs_better_count": 32,
+      "racs_worse_count": 24,
+      "stdev": 8.369345
+    },
+    "tasks_completed_delta": {
+      "equal_count": 108,
+      "max": 1.0,
+      "mean": 0.1,
+      "median": 0.0,
+      "min": 0.0,
+      "racs_better_count": 12,
+      "racs_worse_count": 0,
+      "stdev": 0.301258
+    },
+    "throughput_degradation_delta": {
+      "equal_count": 108,
+      "max": 0.0,
+      "mean": -0.002113,
+      "median": 0.0,
+      "min": -0.021739,
+      "racs_better_count": 12,
+      "racs_worse_count": 0,
+      "stdev": 0.006369
+    },
+    "workstation_buffer_auc_delta": {
+      "equal_count": 77,
+      "max": 17.0,
+      "mean": -0.166667,
+      "median": 0.0,
+      "min": -15.0,
+      "racs_better_count": 0,
+      "racs_worse_count": 0,
+      "stdev": 4.728482
+    },
+    "workstation_starvation_delta": {
+      "equal_count": 104,
+      "max": 0.0,
+      "mean": -0.133333,
+      "median": 0.0,
+      "min": -1.0,
+      "racs_better_count": 16,
+      "racs_worse_count": 0,
+      "stdev": 0.34136
+    }
+  },
+  "throughput_degradation_summaries": {
+    "baseline_throughput_degradation": {
+      "max": 0.1875,
+      "mean": 0.113487,
+      "median": 0.116818,
+      "min": 0.021277,
+      "stdev": 0.040593
+    },
+    "racs_throughput_degradation": {
+      "max": 0.1875,
+      "mean": 0.111374,
+      "median": 0.108696,
+      "min": 0.021277,
+      "stdev": 0.040027
+    }
+  }
+}

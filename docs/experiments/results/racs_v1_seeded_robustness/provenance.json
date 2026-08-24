@@ -1,0 +1,12 @@
+﻿{
+    "experiment_id":  "seeded_robustness_30",
+    "original_manifest_git_commit":  "395e238c62d2e0f7c2439b6d83486d5279e5380a",
+    "run_was_from_dirty_worktree":  true,
+    "run_worktree_diff_sha256":  "7610033FB020FA9C5B6DDA4059A39EAEE82C9785C6F93B8F924BFCA77362C4F5",
+    "final_source_snapshot_commit":  "b4764da6193e013c3c2e1f86763597498bc6253f",
+    "tests_passed":  {
+                         "targeted":  "109 passed in 3.36s",
+                         "full_suite":  "247 passed in 4.30s"
+                     },
+    "note":  "The original manifest git_commit records the clean HEAD at runtime. The experiment was executed from a dirty working tree; final_source_snapshot_commit snapshots the previously uncommitted implementation used for the completed seeded robustness run. The original manifest and result CSV/JSON artifacts were not rewritten."
+}

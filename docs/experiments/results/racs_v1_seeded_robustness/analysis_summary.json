@@ -1,0 +1,489 @@
+{
+  "by_wip": {
+    "0": {
+      "baseline_cascade_start_distribution": {
+        "frequency": {
+          "16": 3,
+          "17": 4,
+          "18": 1,
+          "19": 2,
+          "21": 2,
+          "24": 5,
+          "25": 6,
+          "27": 2,
+          "31": 2,
+          "32": 1,
+          "37": 1,
+          "38": 1
+        },
+        "max": 38,
+        "median": 24.0,
+        "min": 16
+      },
+      "cascade_delayed_count": 5,
+      "cascade_earlier_count": 0,
+      "cascade_prevented_count": 0,
+      "downstream_completion_deficit_delta": {
+        "equal_count": 26,
+        "max": 0,
+        "mean": -0.133333,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 4,
+        "racs_worse_count": 0,
+        "stdev": 0.345746
+      },
+      "intervention_before_propagation_fraction": 0.666667,
+      "latency_delta": {
+        "equal_count": 19,
+        "max": 0.0,
+        "mean": -0.090067,
+        "median": 0.0,
+        "min": -0.6920000000000002,
+        "racs_better_count": 11,
+        "racs_worse_count": 0,
+        "stdev": 0.17002
+      },
+      "net_missed_processing_deficit_delta": {
+        "equal_count": 26,
+        "max": 0,
+        "mean": -0.133333,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 4,
+        "racs_worse_count": 0,
+        "stdev": 0.345746
+      },
+      "positive_excess_missed_processing_delta": {
+        "equal_count": 24,
+        "max": 0,
+        "mean": -0.2,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 6,
+        "racs_worse_count": 0,
+        "stdev": 0.406838
+      },
+      "queue_auc_delta": {
+        "equal_count": 16,
+        "max": 6,
+        "mean": -2.933333,
+        "median": 0.0,
+        "min": -28,
+        "racs_better_count": 8,
+        "racs_worse_count": 6,
+        "stdev": 8.476879
+      },
+      "seed_count": 30,
+      "tasks_completed_delta": {
+        "equal_count": 27,
+        "max": 1,
+        "mean": 0.1,
+        "median": 0.0,
+        "min": 0,
+        "racs_better_count": 3,
+        "racs_worse_count": 0,
+        "stdev": 0.305129
+      }
+    },
+    "1": {
+      "baseline_cascade_start_distribution": {
+        "frequency": {
+          "16": 2,
+          "17": 3,
+          "19": 1,
+          "21": 2,
+          "24": 5,
+          "25": 7,
+          "27": 3,
+          "31": 3,
+          "32": 1,
+          "37": 2,
+          "38": 1
+        },
+        "max": 38,
+        "median": 25.0,
+        "min": 16
+      },
+      "cascade_delayed_count": 6,
+      "cascade_earlier_count": 0,
+      "cascade_prevented_count": 0,
+      "downstream_completion_deficit_delta": {
+        "equal_count": 26,
+        "max": 0,
+        "mean": -0.133333,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 4,
+        "racs_worse_count": 0,
+        "stdev": 0.345746
+      },
+      "intervention_before_propagation_fraction": 0.8,
+      "latency_delta": {
+        "equal_count": 19,
+        "max": 0.0,
+        "mean": -0.090067,
+        "median": 0.0,
+        "min": -0.6920000000000002,
+        "racs_better_count": 11,
+        "racs_worse_count": 0,
+        "stdev": 0.17002
+      },
+      "net_missed_processing_deficit_delta": {
+        "equal_count": 26,
+        "max": 0,
+        "mean": -0.133333,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 4,
+        "racs_worse_count": 0,
+        "stdev": 0.345746
+      },
+      "positive_excess_missed_processing_delta": {
+        "equal_count": 24,
+        "max": 0,
+        "mean": -0.2,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 6,
+        "racs_worse_count": 0,
+        "stdev": 0.406838
+      },
+      "queue_auc_delta": {
+        "equal_count": 16,
+        "max": 6,
+        "mean": -2.933333,
+        "median": 0.0,
+        "min": -28,
+        "racs_better_count": 8,
+        "racs_worse_count": 6,
+        "stdev": 8.476879
+      },
+      "seed_count": 30,
+      "tasks_completed_delta": {
+        "equal_count": 27,
+        "max": 1,
+        "mean": 0.1,
+        "median": 0.0,
+        "min": 0,
+        "racs_better_count": 3,
+        "racs_worse_count": 0,
+        "stdev": 0.305129
+      }
+    },
+    "2": {
+      "baseline_cascade_start_distribution": {
+        "frequency": {
+          "17": 1,
+          "21": 2,
+          "23": 1,
+          "24": 4,
+          "25": 5,
+          "27": 2,
+          "30": 1,
+          "32": 3,
+          "37": 3,
+          "38": 2,
+          "39": 4,
+          "44": 1,
+          "45": 1
+        },
+        "max": 45,
+        "median": 28.5,
+        "min": 17
+      },
+      "cascade_delayed_count": 6,
+      "cascade_earlier_count": 0,
+      "cascade_prevented_count": 0,
+      "downstream_completion_deficit_delta": {
+        "equal_count": 26,
+        "max": 0,
+        "mean": -0.133333,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 4,
+        "racs_worse_count": 0,
+        "stdev": 0.345746
+      },
+      "intervention_before_propagation_fraction": 0.933333,
+      "latency_delta": {
+        "equal_count": 19,
+        "max": 0.0,
+        "mean": -0.090067,
+        "median": 0.0,
+        "min": -0.6920000000000002,
+        "racs_better_count": 11,
+        "racs_worse_count": 0,
+        "stdev": 0.17002
+      },
+      "net_missed_processing_deficit_delta": {
+        "equal_count": 26,
+        "max": 0,
+        "mean": -0.133333,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 4,
+        "racs_worse_count": 0,
+        "stdev": 0.345746
+      },
+      "positive_excess_missed_processing_delta": {
+        "equal_count": 25,
+        "max": 0,
+        "mean": -0.166667,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 5,
+        "racs_worse_count": 0,
+        "stdev": 0.379049
+      },
+      "queue_auc_delta": {
+        "equal_count": 16,
+        "max": 6,
+        "mean": -2.933333,
+        "median": 0.0,
+        "min": -28,
+        "racs_better_count": 8,
+        "racs_worse_count": 6,
+        "stdev": 8.476879
+      },
+      "seed_count": 30,
+      "tasks_completed_delta": {
+        "equal_count": 27,
+        "max": 1,
+        "mean": 0.1,
+        "median": 0.0,
+        "min": 0,
+        "racs_better_count": 3,
+        "racs_worse_count": 0,
+        "stdev": 0.305129
+      }
+    },
+    "4": {
+      "baseline_cascade_start_distribution": {
+        "frequency": {
+          "24": 1,
+          "25": 1,
+          "27": 1,
+          "30": 1,
+          "31": 1,
+          "37": 4,
+          "38": 1,
+          "39": 2,
+          "44": 3,
+          "45": 1,
+          "50": 2,
+          "51": 1,
+          "52": 3,
+          "57": 2,
+          "58": 1,
+          "59": 4
+        },
+        "max": 59,
+        "median": 44,
+        "min": 24
+      },
+      "cascade_delayed_count": 4,
+      "cascade_earlier_count": 0,
+      "cascade_prevented_count": 1,
+      "downstream_completion_deficit_delta": {
+        "equal_count": 26,
+        "max": 0,
+        "mean": -0.133333,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 4,
+        "racs_worse_count": 0,
+        "stdev": 0.345746
+      },
+      "intervention_before_propagation_fraction": 0.933333,
+      "latency_delta": {
+        "equal_count": 19,
+        "max": 0.0,
+        "mean": -0.090067,
+        "median": 0.0,
+        "min": -0.6920000000000002,
+        "racs_better_count": 11,
+        "racs_worse_count": 0,
+        "stdev": 0.17002
+      },
+      "net_missed_processing_deficit_delta": {
+        "equal_count": 26,
+        "max": 0,
+        "mean": -0.133333,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 4,
+        "racs_worse_count": 0,
+        "stdev": 0.345746
+      },
+      "positive_excess_missed_processing_delta": {
+        "equal_count": 26,
+        "max": 0,
+        "mean": -0.133333,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 4,
+        "racs_worse_count": 0,
+        "stdev": 0.345746
+      },
+      "queue_auc_delta": {
+        "equal_count": 16,
+        "max": 6,
+        "mean": -2.933333,
+        "median": 0.0,
+        "min": -28,
+        "racs_better_count": 8,
+        "racs_worse_count": 6,
+        "stdev": 8.476879
+      },
+      "seed_count": 30,
+      "tasks_completed_delta": {
+        "equal_count": 27,
+        "max": 1,
+        "mean": 0.1,
+        "median": 0.0,
+        "min": 0,
+        "racs_better_count": 3,
+        "racs_worse_count": 0,
+        "stdev": 0.305129
+      }
+    }
+  },
+  "conditional_analysis": {
+    "group_a_intervention_before_baseline_propagation": {
+      "case_count": 100,
+      "downstream_completion_deficit_delta": {
+        "equal_count": 87,
+        "max": 0,
+        "mean": -0.13,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 13,
+        "racs_worse_count": 0,
+        "stdev": 0.337998
+      },
+      "latency_delta": {
+        "equal_count": 61,
+        "max": 0.0,
+        "mean": -0.08692,
+        "median": 0.0,
+        "min": -0.6920000000000002,
+        "racs_better_count": 39,
+        "racs_worse_count": 0,
+        "stdev": 0.156195
+      },
+      "net_missed_processing_deficit_delta": {
+        "equal_count": 87,
+        "max": 0,
+        "mean": -0.13,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 13,
+        "racs_worse_count": 0,
+        "stdev": 0.337998
+      },
+      "positive_excess_missed_processing_delta": {
+        "equal_count": 82,
+        "max": 0,
+        "mean": -0.18,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 18,
+        "racs_worse_count": 0,
+        "stdev": 0.386123
+      },
+      "queue_auc_delta": {
+        "equal_count": 50,
+        "max": 6,
+        "mean": -2.76,
+        "median": 0.0,
+        "min": -28,
+        "racs_better_count": 27,
+        "racs_worse_count": 23,
+        "stdev": 8.263489
+      }
+    },
+    "group_b_intervention_at_or_after_baseline_propagation": {
+      "case_count": 20,
+      "downstream_completion_deficit_delta": {
+        "equal_count": 17,
+        "max": 0,
+        "mean": -0.15,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 3,
+        "racs_worse_count": 0,
+        "stdev": 0.366348
+      },
+      "latency_delta": {
+        "equal_count": 15,
+        "max": 0.0,
+        "mean": -0.1058,
+        "median": 0.0,
+        "min": -0.6920000000000002,
+        "racs_better_count": 5,
+        "racs_worse_count": 0,
+        "stdev": 0.221473
+      },
+      "net_missed_processing_deficit_delta": {
+        "equal_count": 17,
+        "max": 0,
+        "mean": -0.15,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 3,
+        "racs_worse_count": 0,
+        "stdev": 0.366348
+      },
+      "positive_excess_missed_processing_delta": {
+        "equal_count": 17,
+        "max": 0,
+        "mean": -0.15,
+        "median": 0.0,
+        "min": -1,
+        "racs_better_count": 3,
+        "racs_worse_count": 0,
+        "stdev": 0.366348
+      },
+      "queue_auc_delta": {
+        "equal_count": 14,
+        "max": 3,
+        "mean": -3.8,
+        "median": 0.0,
+        "min": -27,
+        "racs_better_count": 5,
+        "racs_worse_count": 1,
+        "stdev": 9.05306
+      }
+    }
+  },
+  "dirty_tree_diff_sha256": "7610033FB020FA9C5B6DDA4059A39EAEE82C9785C6F93B8F924BFCA77362C4F5",
+  "h2_interpretation": "H2 was not established: downstream benefit was not greater in the intervention-before-propagation group than in the at/after-propagation group.",
+  "h3_interpretation": "Within the tested WIP levels, greater disturbance-time WIP was associated with a higher fraction of runs in which RACS intervened before propagation: 0 -> 66.7%, 1 -> 80.0%, 2 -> 93.3%, 4 -> 93.3%.",
+  "hypotheses": {
+    "H1_transport_coordination": "PARTIALLY SUPPORTED",
+    "H2_more_downstream_benefit_when_intervention_precedes_propagation": "NOT ESTABLISHED",
+    "H3_wip_increases_intervention_before_propagation_probability": "SUPPORTED WITHIN TESTED WIP LEVELS"
+  },
+  "note": "Derived from frozen CSV outputs only; no simulation rerun was performed.",
+  "original_runtime_head": "395e238c62d2e0f7c2439b6d83486d5279e5380a",
+  "overall_key_findings": {
+    "latency_delta_mean": -0.090067,
+    "net_downstream_deficit_delta_mean": -0.133333,
+    "queue_auc_delta_mean": -2.933333,
+    "queue_auc_worse_cases": "24 / 120",
+    "wip4_cascade_prevention_cases": 1
+  },
+  "sign_conventions": {
+    "downstream_completion_deficit_delta": "negative favors RACS",
+    "intervention_to_baseline_propagation_margin": "baseline cascade start - RACS intervention; positive means RACS intervened before baseline propagation",
+    "latency_delta": "negative favors RACS",
+    "net_missed_workstation_processing_deficit_delta": "negative favors RACS",
+    "paired_deltas": "RACS - baseline",
+    "positive_excess_missed_processing_delta": "negative favors RACS",
+    "queue_auc_delta": "negative favors RACS",
+    "tasks_completed_delta": "positive favors RACS"
+  },
+  "source_experiment": "results/seeded_robustness_30",
+  "source_snapshot": "b4764da6193e013c3c2e1f86763597498bc6253f"
+}
